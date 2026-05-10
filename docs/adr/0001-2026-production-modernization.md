@@ -1,8 +1,10 @@
 # ADR 0001: 2026年版プロダクション移行
 
-- ステータス: 提案中
-- 日付: 2026-04-26
+- ステータス: Wave 1-2A 採用済み / Wave 2B以降は [ADR 0004](./0004-mvp-scope-2026-05.md) によりPoC対象外
+- 日付: 2026-04-26 (初版) / 2026-05-10 (PoCスコープに合わせ改訂)
 - 対象: OpenAI Realtime、Twilio電話連携、React管理画面、人間への引き継ぎ、Cloud Run、050番号
+
+> **改訂メモ (2026-05-10):** PoC納期 (2026年5月中旬) に間に合わせるため、本ADRのうちWave 2B以降のうち「Twilio Voice SDKソフトフォン」「Twilio Conference引き継ぎ」「ベクトルRAG」「backend TypeScript化」「リアルタイム通話イベントストリーム」はPoC対象外とし、フェーズ2以降に延期しました。詳細は [ADR 0004 MVPスコープ凍結](./0004-mvp-scope-2026-05.md) を参照してください。
 
 ## 背景
 
@@ -48,13 +50,14 @@ Reactオペレーターコンソール
 
 ## ロールアウト順序
 
-1. Wave 1: ローカル起動、OpenAI Realtime、Twilio Media Streams、050実着信を検証する。
-2. Wave 2: TypeScript化、設定スキーマ、Realtime GA仕様、VADプロファイルを整備する。
-3. Wave 3: React管理画面、通話状態イベント、ログ表示、設定編集を実装する。
-4. Wave 4: RAG/ナレッジ投入、参照元表示、監査ログを実装する。
-5. Wave 5: Twilio Voice SDKとConferenceで人間への引き継ぎを実装する。
-6. Wave 6: Cloud Run、Secret Manager、監視、署名検証を整備する。
-7. Wave 7: 050番号を本番URLへ恒久切替する。
+1. ✅ Wave 1: ローカル起動、OpenAI Realtime、Twilio Media Streams、050実着信を検証する。 (2026-04 完了)
+2. 🟡 Wave 2A: Cloud Run、Secret Manager、署名検証、プライバシーログ無効化を整備する。 (2026-04 完了)
+3. 🟢 Wave 2B (PoC MVP / 2026-05): React + Clerk管理画面、通話履歴一覧、AI設定 (システムプロンプト + Markdown直書きナレッジ)、再架電フラグを実装する。詳細は [ADR 0004](./0004-mvp-scope-2026-05.md) と [docs/mvp-scope-2026-05.md](../mvp-scope-2026-05.md) を参照。
+4. ⏸ Wave 3 (フェーズ2以降): backend TypeScript化、通話状態リアルタイムイベントストリーム。
+5. ⏸ Wave 4 (フェーズ2以降): ベクトル化RAG、PDF/PowerPoint対応、参照元表示。
+6. ⏸ Wave 5 (フェーズ2以降): Twilio Voice SDKソフトフォンとConferenceで人間への引き継ぎを実装する。
+7. ✅ Wave 6: Cloud Run、Secret Manager、監視、署名検証。 (Wave 2Aに統合し完了)
+8. ✅ Wave 7: 050番号を本番URLへ恒久切替する。 (2026-04 完了)
 
 ## 受け入れ条件
 
