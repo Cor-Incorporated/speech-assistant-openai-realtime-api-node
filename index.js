@@ -2,8 +2,15 @@ import Fastify from 'fastify';
 import WebSocket from 'ws';
 import dotenv from 'dotenv';
 import fastifyFormBody from '@fastify/formbody';
+import fastifyStatic from '@fastify/static';
 import fastifyWs from '@fastify/websocket';
+import { existsSync, readFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { createAdminBasicAuth, registerAdminRoutes } from './lib/admin-routes.js';
 import { buildCallLogRecord, CallLogSinks } from './lib/call-log-sinks.js';
+import { CallLogStore } from './lib/call-log-store.js';
+import { getRuntimeConfig } from './lib/runtime-config.js';
 import {
     auditLog,
     getTwilioWebhookUrl,
@@ -14,6 +21,21 @@ import {
 
 // .envファイルから環境変数を読み込む
 dotenv.config();
+
+const CURRENT_DIR = dirname(fileURLToPath(import.meta.url));
+const ADMIN_APP_DIST_DIR = resolve(CURRENT_DIR, 'dist/client');
+const ADMIN_APP_INDEX_PATH = join(ADMIN_APP_DIST_DIR, 'index.html');
+
+const DEFAULT_SYSTEM_MESSAGE = [
+    'あなたは日本のコールセンターで電話一次受付を担当するAIオペレーターです。',
+    '必ず自然で丁寧な日本語だけで応答してください。英語では応答しません。',
+    '相手の発話が聞き取れない場合は、推測せず「恐れ入ります。もう一度お話しいただけますか」と確認してください。',
+    '一度に複数の質問をせず、用件、名前、折り返し電話番号、希望日時などを一つずつ確認してください。',
+    '氏名は聞こえた読みをそのままカタカナで確認してください。一般的な漢字名へ勝手に変換しないでください。',
+    '氏名が少しでも不確かな場合は「お名前の読みをカタカナで確認させてください」と聞き返してください。',
+    '会話を勝手に終了せず、必要に応じて担当者へ引き継ぐ旨を伝えてください。',
+    'まだ社名や業務ナレッジが未設定のため、断定できない内容は「確認して折り返します」と案内してください。'
+].join('\n');
 
 // 環境変数からOpenAI APIキーを取得
 const {
@@ -45,18 +67,32 @@ const {
     CALL_LOG_SHEETS_ENABLED = 'false',
     GOOGLE_SHEETS_SPREADSHEET_ID = '',
     GOOGLE_SHEETS_RANGE = '',
-    SYSTEM_MESSAGE = [
-        'あなたは日本のコールセンターで電話一次受付を担当するAIオペレーターです。',
-        '必ず自然で丁寧な日本語だけで応答してください。英語では応答しません。',
-        '相手の発話が聞き取れない場合は、推測せず「恐れ入ります。もう一度お話しいただけますか」と確認してください。',
-        '一度に複数の質問をせず、用件、名前、折り返し電話番号、希望日時などを一つずつ確認してください。',
-        '氏名は聞こえた読みをそのままカタカナで確認してください。一般的な漢字名へ勝手に変換しないでください。',
-        '氏名が少しでも不確かな場合は「お名前の読みをカタカナで確認させてください」と聞き返してください。',
-        '会話を勝手に終了せず、必要に応じて担当者へ引き継ぐ旨を伝えてください。',
-        'まだ社名や業務ナレッジが未設定のため、断定できない内容は「確認して折り返します」と案内してください。'
-    ].join('\n'),
+    SYSTEM_MESSAGE = DEFAULT_SYSTEM_MESSAGE,
+    SYSTEM_MESSAGE_FILE = '',
     FIRST_MESSAGE = 'お電話ありがとうございます。AI受付です。どのようなご用件でしょうか。'
 } = process.env;
+
+const resolveSystemMessage = () => {
+    if (!SYSTEM_MESSAGE_FILE) return SYSTEM_MESSAGE;
+
+    const systemMessagePath = resolve(process.cwd(), SYSTEM_MESSAGE_FILE);
+
+    try {
+        const message = readFileSync(systemMessagePath, 'utf8').trim();
+        if (!message) {
+            console.error(`SYSTEM_MESSAGE_FILE is empty: ${systemMessagePath}`);
+            process.exit(1);
+        }
+
+        return message;
+    } catch (error) {
+        console.error(`Failed to read SYSTEM_MESSAGE_FILE: ${systemMessagePath}`);
+        console.error(error.message);
+        process.exit(1);
+    }
+};
+
+const RESOLVED_SYSTEM_MESSAGE = resolveSystemMessage();
 
 if (!OPENAI_API_KEY) {
     console.error('OpenAI APIキーが見つかりません。.envファイルに設定してください。');
@@ -85,6 +121,56 @@ const callLogSinks = new CallLogSinks({
     sheetsRange: GOOGLE_SHEETS_RANGE,
     googleProjectId: GOOGLE_CLOUD_PROJECT
 });
+const callLogStore = new CallLogStore({
+    firestoreEnabled: CALL_LOG_FIRESTORE_ENABLED,
+    firestoreDatabaseId: CALL_LOG_FIRESTORE_DATABASE_ID,
+    firestoreCollection: CALL_LOG_FIRESTORE_COLLECTION,
+    googleProjectId: GOOGLE_CLOUD_PROJECT
+});
+const adminAuth = createAdminBasicAuth();
+
+const requireAdminAppAuth = async (request, reply) => {
+    const result = await adminAuth.authenticate(request);
+    if (result.ok) return;
+
+    if (result.configured === false) {
+        reply.code(503).send({
+            error: 'admin_auth_unconfigured',
+            message: 'Admin UI credentials are not configured'
+        });
+        return;
+    }
+
+    reply
+        .header('WWW-Authenticate', 'Basic realm="Cor Voice Admin"')
+        .code(401)
+        .send({ error: 'unauthorized' });
+};
+
+fastify.addHook('onRequest', async (request, reply) => {
+    if (request.url === '/app' || request.url.startsWith('/app/')) {
+        await requireAdminAppAuth(request, reply);
+    }
+});
+
+fastify.register(registerAdminRoutes, {
+    store: callLogStore,
+    auth: adminAuth,
+    config: () => getRuntimeConfig({
+        systemMessage: RESOLVED_SYSTEM_MESSAGE
+    }),
+    auditLog
+});
+
+if (existsSync(ADMIN_APP_INDEX_PATH)) {
+    const assetsDir = join(ADMIN_APP_DIST_DIR, 'assets');
+    if (existsSync(assetsDir)) {
+        fastify.register(fastifyStatic, {
+            root: assetsDir,
+            prefix: '/app/assets/'
+        });
+    }
+}
 
 const escapeXml = (value = '') => String(value)
     .replaceAll('&', '&amp;')
@@ -92,6 +178,15 @@ const escapeXml = (value = '') => String(value)
     .replaceAll("'", '&apos;')
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;');
+
+const summarizeExtractionForLog = (extracted = {}) => ({
+    callbackRequired: Boolean(extracted.callbackRequired),
+    hasCustomerName: Boolean(extracted.customerName),
+    hasCustomerPhoneNumber: Boolean(extracted.customerPhoneNumber),
+    hasPreferredDatetime: Boolean(extracted.preferredDatetime),
+    intentLength: String(extracted.intent || '').length,
+    summaryLength: String(extracted.summary || '').length
+});
 
 const appendTurn = (session, role, text) => {
     const normalizedText = String(text || '').trim();
@@ -129,7 +224,7 @@ const buildRealtimeSessionConfig = () => {
     const session = {
         type: 'realtime',
         model: REALTIME_MODEL,
-        instructions: SYSTEM_MESSAGE,
+        instructions: RESOLVED_SYSTEM_MESSAGE,
         audio: {
             input: {
                 format: { type: AUDIO_FORMAT },
@@ -184,6 +279,18 @@ fastify.get('/healthz', async (request, reply) => {
 
 fastify.get('/health', async (request, reply) => {
     reply.send({ status: 'ok' });
+});
+
+fastify.get('/app', async (request, reply) => {
+    reply.redirect('/app/');
+});
+
+fastify.get('/app/*', async (request, reply) => {
+    if (!existsSync(ADMIN_APP_INDEX_PATH)) {
+        return reply.code(404).send({ error: 'Admin app has not been built.' });
+    }
+
+    return reply.type('text/html').send(readFileSync(ADMIN_APP_INDEX_PATH, 'utf8'));
 });
 
 // Twilioが着信を処理するルート
@@ -522,7 +629,7 @@ async function processTranscriptAndSend(transcript, sessionId = null) {
 
     try {
         const extracted = await extractCallDetails(transcript);
-        console.log('Extracted call details:', JSON.stringify(extracted));
+        console.log('Extracted call details:', JSON.stringify(summarizeExtractionForLog(extracted)));
         return extracted;
     } catch (error) {
         console.error('Error in processTranscriptAndSend:', error.message);
