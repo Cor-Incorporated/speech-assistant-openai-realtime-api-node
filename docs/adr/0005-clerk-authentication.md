@@ -13,7 +13,7 @@ ADR 0002 では「初期リリースの認証基盤を何にするか」が未�
 
 1. Firebase Authentication
 2. Clerk (Free tier)
-3. 自前のJWT認証 (`jsonwebtoken` ベタ実装)
+3. 自前のJWT認証 (`jsonwebtoken` を直接使用する実装)
 
 PoCの制約 (納期厳守、フロントエンド工数の最小化、運用者数は数人〜十数人) を踏まえて選定します。
 

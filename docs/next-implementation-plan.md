@@ -71,7 +71,7 @@
 
 ## Wave 2B-5: PoCデプロイと結合テスト
 
-- frontendはVercel (推奨) または既存Cloud Runへのstatic serveのいずれかで配信する (Wave 2B-4で決定)。
+- frontendの配信先 (Vercel / Firebase Hosting / 同Cloud Runのstatic serve のいずれか) はWave 2B-4の成果物として確定する。本Waveでは確定済みの配信先へデプロイし、Clerkのallowed originsを更新する。
 - 結合テスト:
   1. 認証なしで `/admin/calls` → 401。
   2. ログイン後 `/calls` で履歴表示。

@@ -56,6 +56,7 @@
 - 通話一覧: 日時, 電話番号 (末尾4桁マスク), 要約, 再架電フラグ, リンク。
 - AI設定: システムプロンプト, Markdownナレッジ, 初回発話の編集と保存。
 - backend APIへは Clerk JWTをBearerで送信。
+- 配信先 (Vercel / 同Cloud Runのstatic serve / Firebase Hosting等) を本Stepの成果物として確定する。決定基準は (a) Cloud Run backendとのドメイン構成、(b) Clerkのallowed origins設定の容易さ、(c) PoC期間中のホスティング無料枠の3点。
 
 ### Step 5. PoC受け入れテスト
 
@@ -75,13 +76,13 @@
 | Twilio Conference参加者制御 | #17 | PoCでは導入しない |
 | ベクトルRAG / チャンク化 / 検索インデックス | #14, #29 | Markdown全文をプロンプト同梱で代替 |
 | PDF/PowerPoint対応 | #30 | フェーズ2 |
-| ノードベースのコールフロー構築UI | (今後想定) | フェーズ2、システムプロンプトで代替 |
-| CRM/SFA・Slack/Teams連携 | (今後想定) | フェーズ3以降 |
+| ノードベースのコールフロー構築UI | 未起票 (フェーズ2以降) | フェーズ2、システムプロンプトで代替 |
+| CRM/SFA・Slack/Teams連携 | 未起票 (フェーズ2以降) | フェーズ3以降 |
 
 詳細は [ADR 0004](./adr/0004-mvp-scope-2026-05.md) と [docs/mvp-scope-2026-05.md](./mvp-scope-2026-05.md) を参照。
 
 ## ロールアウトと検証
 
-1. `frontend/` を新規追加し、Cloud Runの既存サービスはbackendのみ提供する (frontendはVercel等の静的ホスティング、または同Cloud Runでstatic serveのいずれかをStep 4で決定)。
+1. `frontend/` を新規追加し、Cloud Runの既存サービスはbackendのみ提供する。frontendの配信先はStep 4 (React + Clerk管理画面) の成果物として決定する。
 2. Clerkは検証用テナントを作成し、Free tierで運用する。
 3. PoCデプロイ後、5月中旬の結合テストで上記受け入れ条件を一括検証する。
