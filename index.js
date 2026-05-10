@@ -19,7 +19,8 @@ dotenv.config();
 const {
     OPENAI_API_KEY,
     PORT = 5050,
-    REALTIME_MODEL = 'gpt-realtime-1.5',
+    REALTIME_MODEL = 'gpt-realtime-2',
+    REALTIME_REASONING_EFFORT = 'low',
     TRANSCRIPTION_MODEL = 'gpt-4o-transcribe',
     EXTRACTION_MODEL = 'gpt-5.4-mini',
     EXTRACTION_ENABLED = 'false',
@@ -74,6 +75,7 @@ const SHOULD_LOG_REALTIME_EVENTS = LOG_REALTIME_EVENTS === 'true';
 const SHOULD_RUN_EXTRACTION = EXTRACTION_ENABLED === 'true';
 const SHOULD_LOG_OPENAI_RESPONSES = LOG_OPENAI_RESPONSES === 'true';
 const SHOULD_VALIDATE_TWILIO_SIGNATURE = shouldValidateTwilioSignature(TWILIO_SIGNATURE_VALIDATION_ENABLED);
+const SHOULD_SET_REALTIME_REASONING = REALTIME_MODEL.startsWith('gpt-realtime-2');
 const callLogSinks = new CallLogSinks({
     firestoreEnabled: CALL_LOG_FIRESTORE_ENABLED,
     firestoreDatabaseId: CALL_LOG_FIRESTORE_DATABASE_ID,
@@ -123,25 +125,35 @@ const buildTurnDetectionConfig = () => {
     };
 };
 
-const buildRealtimeSessionConfig = () => ({
-    type: 'realtime',
-    model: REALTIME_MODEL,
-    instructions: SYSTEM_MESSAGE,
-    audio: {
-        input: {
-            format: { type: AUDIO_FORMAT },
-            noise_reduction: AUDIO_NOISE_REDUCTION === 'null' ? null : { type: AUDIO_NOISE_REDUCTION },
-            transcription: {
-                model: TRANSCRIPTION_MODEL
+const buildRealtimeSessionConfig = () => {
+    const session = {
+        type: 'realtime',
+        model: REALTIME_MODEL,
+        instructions: SYSTEM_MESSAGE,
+        audio: {
+            input: {
+                format: { type: AUDIO_FORMAT },
+                noise_reduction: AUDIO_NOISE_REDUCTION === 'null' ? null : { type: AUDIO_NOISE_REDUCTION },
+                transcription: {
+                    model: TRANSCRIPTION_MODEL
+                },
+                turn_detection: buildTurnDetectionConfig()
             },
-            turn_detection: buildTurnDetectionConfig()
-        },
-        output: {
-            format: { type: AUDIO_FORMAT },
-            voice: VOICE
+            output: {
+                format: { type: AUDIO_FORMAT },
+                voice: VOICE
+            }
         }
+    };
+
+    if (SHOULD_SET_REALTIME_REASONING) {
+        session.reasoning = {
+            effort: REALTIME_REASONING_EFFORT
+        };
     }
-});
+
+    return session;
+};
 
 // セッション管理
 const sessions = new Map();

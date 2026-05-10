@@ -8,6 +8,7 @@
     "dev": "node --watch index.js",
     "check": "node --check index.js",
     "check:realtime": "node scripts/check-realtime.js",
+    "benchmark:realtime-models": "node scripts/benchmark-realtime-models.js",
     "smoke:media-stream": "node scripts/smoke-media-stream.js",
     "smoke:local": "node scripts/smoke-local.js",
     "test": "npm run check && node --test"

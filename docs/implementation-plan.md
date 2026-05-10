@@ -15,7 +15,9 @@
 
 - #3/#16 Cloud Run基盤、Secret Manager、CI/CD
 - #4/#18 Twilio番号 `<twilio-phone-number>` のCloud Run切替
-- #5/#7 OpenAI Realtime GA形状、`gpt-realtime-1.5`、`gpt-4o-transcribe`
+- #5/#7 OpenAI Realtime GA形状、`gpt-4o-transcribe`
+- 2026-05-10以降のRealtime既定: `gpt-realtime-2` + `REALTIME_REASONING_EFFORT=low`
+- 2026-04時点のWave 1検証ログでは `gpt-realtime-1.5` を使用
 - #8/#9 ローカル/Cloud Run/Twilio Media Streams検証
 - 通話ログ: Firestore `your-firestore-database-id/callLogs` とGoogle Sheetsへの追記
 - Sheets時刻のJST表示、電話番号の文字列化、エージェント発話重複排除
