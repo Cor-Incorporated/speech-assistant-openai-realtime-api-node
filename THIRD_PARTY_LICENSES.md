@@ -1,13 +1,13 @@
 # Third Party Licenses
 
-本リポジトリは以下のOSSライブラリに依存しています。これらは全て、Cor.株式会社が外部受託案件の検討を開始した境界日 (2026-04-08) 以前から公開・利用可能な公知のソフトウェアです。
+本リポジトリは以下のOSSライブラリに依存しています。公開リポジトリで扱うため、ベース実装、利用先API、直接依存を分けて記録します。
 
 ## ベース実装
 
 - **Twilio公式サンプル `speech-assistant-openai-realtime-api-node`** (MIT License, Copyright (c) 2024 Twilio Inc.)
   - URL: https://github.com/twilio-samples/speech-assistant-openai-realtime-api-node
   - 派生開始日: 2024-10-14 (本リポジトリ初期コミット日)
-  - ライセンス全文: 本リポジトリ `LICENSE` ファイル参照 (Twilio Inc. の MIT 著作権表示を保持)
+  - ライセンス全文: 本リポジトリ `LICENSE` ファイル参照 (Twilio Inc. の MIT 表示を保持)
 
 ## 利用先 API
 
@@ -38,13 +38,11 @@
 
 ## ランタイム
 
-- **Node.js** 22+ (MIT License) — https://nodejs.org/
+- **Node.js** 18+ (MIT License) — https://nodejs.org/
 
 ## 重要事項
 
-これらのOSSは全て、Cor.株式会社が外部受託案件の検討を開始した日 (2026-04-08) より前から公開されている公知のソフトウェアです。本リポジトリの Cor.独自実装は、これらOSSの組み合わせ・統合・拡張に該当します。
-
-外部受託検討前から公知のOSSであるため、利用に関し第三者との秘密保持契約 (NDA) の制約を受けません。
+本リポジトリには、ベース実装、利用先API、直接依存ライブラリ、Cor.管理下の汎用変更を記録します。デプロイ先ごとのシステムプロンプト、運用識別子、顧客固有設定は公開リポジトリに含めません。
 
 ## ライセンステキストの保管
 
