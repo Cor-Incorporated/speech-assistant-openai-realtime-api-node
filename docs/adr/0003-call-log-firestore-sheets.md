@@ -12,10 +12,10 @@
 
 ## 決定
 
-- 通話ログの正本は専用Firestore named database `speech-assistant-logs` に保存する。
+- 通話ログの正本は専用Firestore named database `your-firestore-database-id` に保存する。
 - コレクション名は `callLogs` とする。
 - Google Sheetsは運用ビューとして使い、通話終了時に1行追記する。
-- 対象スプレッドシートは `11klH3hxWcIWKLOVTBJGxPjATG5aai0a6D8z_F6yUO1A` とする。
+- 対象スプレッドシートは `your-spreadsheet-id` とする。
 - 通話要約はOpenAI Responses APIのStructured Outputsで抽出する。
 - Sheets書き込み失敗は通話を失敗扱いにせず、Cloud Runログへ記録する。
 

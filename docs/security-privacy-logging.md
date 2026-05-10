@@ -6,7 +6,7 @@
 
 ```text
 TWILIO_SIGNATURE_VALIDATION_ENABLED=true
-TWILIO_WEBHOOK_URL=https://speech-assistant-realtime-mggisi6odq-an.a.run.app/incoming-call
+TWILIO_WEBHOOK_URL=https://your-app.run.app/incoming-call
 TWILIO_AUTH_TOKEN=<Secret Manager: twilio-auth-token>
 ```
 
@@ -22,7 +22,7 @@ LOG_REALTIME_EVENTS=false
 LOG_OPENAI_RESPONSES=false
 ```
 
-Cloud Runログには全文文字起こし、電話番号、OpenAI応答本文を出しません。通話内容の正本は専用Firestore `speech-assistant-logs/callLogs` に保存し、Google Sheetsは運用ビューとして使います。
+Cloud Runログには全文文字起こし、電話番号、OpenAI応答本文を出しません。通話内容の正本は専用Firestore `your-firestore-database-id/callLogs` に保存し、Google Sheetsは運用ビューとして使います。
 
 ## 監査ログ
 

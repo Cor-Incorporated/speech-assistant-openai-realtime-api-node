@@ -2,7 +2,7 @@
 
 ## 現状
 
-050番号はCloud Run上の日本語AI受付に接続済みです。通話ログは専用Firestore `speech-assistant-logs/callLogs` に保存され、Google Sheetsへ運用ビューとして追記されます。Sheetsの時刻は日本時間表示、電話番号は文字列扱い、エージェント発話の重複記録は修正済みです。
+050番号はCloud Run上の日本語AI受付に接続済みです。通話ログは専用Firestore `your-firestore-database-id/callLogs` に保存され、Google Sheetsへ運用ビューとして追記されます。Sheetsの時刻は日本時間表示、電話番号は文字列扱い、エージェント発話の重複記録は修正済みです。
 
 ## 推奨する次フェーズ
 

@@ -11,11 +11,14 @@ permissions:
   id-token: write
 
 env:
-  PROJECT_ID: aipartner-426616
-  REGION: asia-northeast1
-  SERVICE: speech-assistant-realtime
-  DEPLOYER_SERVICE_ACCOUNT: speech-assistant-deployer@aipartner-426616.iam.gserviceaccount.com
-  WORKLOAD_IDENTITY_PROVIDER: projects/639959525777/locations/global/workloadIdentityPools/github-actions/providers/github
+  PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+  REGION: ${{ vars.CLOUD_RUN_REGION || 'asia-northeast1' }}
+  SERVICE: ${{ vars.CLOUD_RUN_SERVICE || 'speech-assistant-realtime' }}
+  DEPLOYER_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+  WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+  TWILIO_WEBHOOK_URL: ${{ vars.TWILIO_WEBHOOK_URL }}
+  CALL_LOG_FIRESTORE_DATABASE_ID: ${{ vars.CALL_LOG_FIRESTORE_DATABASE_ID }}
+  GOOGLE_SHEETS_SPREADSHEET_ID: ${{ vars.GOOGLE_SHEETS_SPREADSHEET_ID }}
 
 jobs:
   deploy:
@@ -25,6 +28,24 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Validate deployment variables
+        run: |
+          required_vars=(
+            PROJECT_ID
+            DEPLOYER_SERVICE_ACCOUNT
+            WORKLOAD_IDENTITY_PROVIDER
+            TWILIO_WEBHOOK_URL
+            CALL_LOG_FIRESTORE_DATABASE_ID
+            GOOGLE_SHEETS_SPREADSHEET_ID
+          )
+
+          for name in "${required_vars[@]}"; do
+            if [ -z "${!name}" ]; then
+              echo "::error title=Missing deployment variable::$name is required"
+              exit 1
+            fi
+          done
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -49,4 +70,4 @@ jobs:
             --cpu 1 \
             --memory 512Mi \
             --set-secrets OPENAI_API_KEY=openai-api-key:latest,TWILIO_AUTH_TOKEN=twilio-auth-token:latest \
-            --set-env-vars REALTIME_MODEL=gpt-realtime-1.5,TRANSCRIPTION_MODEL=gpt-4o-transcribe,EXTRACTION_MODEL=gpt-5.4-mini,EXTRACTION_ENABLED=true,VOICE=marin,AUDIO_FORMAT=audio/pcmu,AUDIO_NOISE_REDUCTION=near_field,VAD_TYPE=server_vad,VAD_THRESHOLD=0.65,VAD_PREFIX_PADDING_MS=300,VAD_SILENCE_DURATION_MS=700,VAD_EAGERNESS=low,LOG_TRANSCRIPTS=false,LOG_REALTIME_EVENTS=false,LOG_OPENAI_RESPONSES=false,TWILIO_SIGNATURE_VALIDATION_ENABLED=true,TWILIO_WEBHOOK_URL=https://speech-assistant-realtime-mggisi6odq-an.a.run.app/incoming-call,GOOGLE_CLOUD_PROJECT=aipartner-426616,CALL_LOG_FIRESTORE_ENABLED=true,CALL_LOG_FIRESTORE_DATABASE_ID=speech-assistant-logs,CALL_LOG_FIRESTORE_COLLECTION=callLogs,CALL_LOG_SHEETS_ENABLED=true,GOOGLE_SHEETS_SPREADSHEET_ID=11klH3hxWcIWKLOVTBJGxPjATG5aai0a6D8z_F6yUO1A
+            --set-env-vars "REALTIME_MODEL=gpt-realtime-1.5,TRANSCRIPTION_MODEL=gpt-4o-transcribe,EXTRACTION_MODEL=gpt-5.4-mini,EXTRACTION_ENABLED=true,VOICE=marin,AUDIO_FORMAT=audio/pcmu,AUDIO_NOISE_REDUCTION=near_field,VAD_TYPE=server_vad,VAD_THRESHOLD=0.65,VAD_PREFIX_PADDING_MS=300,VAD_SILENCE_DURATION_MS=700,VAD_EAGERNESS=low,LOG_TRANSCRIPTS=false,LOG_REALTIME_EVENTS=false,LOG_OPENAI_RESPONSES=false,TWILIO_SIGNATURE_VALIDATION_ENABLED=true,TWILIO_WEBHOOK_URL=$TWILIO_WEBHOOK_URL,GOOGLE_CLOUD_PROJECT=$PROJECT_ID,CALL_LOG_FIRESTORE_ENABLED=true,CALL_LOG_FIRESTORE_DATABASE_ID=$CALL_LOG_FIRESTORE_DATABASE_ID,CALL_LOG_FIRESTORE_COLLECTION=callLogs,CALL_LOG_SHEETS_ENABLED=true,GOOGLE_SHEETS_SPREADSHEET_ID=$GOOGLE_SHEETS_SPREADSHEET_ID"

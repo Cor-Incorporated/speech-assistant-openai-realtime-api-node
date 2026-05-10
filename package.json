@@ -10,11 +10,11 @@
     "check:realtime": "node scripts/check-realtime.js",
     "smoke:media-stream": "node scripts/smoke-media-stream.js",
     "smoke:local": "node scripts/smoke-local.js",
-    "test": "npm run check"
+    "test": "npm run check && node --test"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "type": "module",
   "dependencies": {
     "@fastify/formbody": "^8.0.0",
