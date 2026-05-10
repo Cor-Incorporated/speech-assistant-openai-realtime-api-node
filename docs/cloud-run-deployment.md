@@ -6,7 +6,7 @@
 
 ## 前提
 
-- GCP project: `aipartner-426616`
+- GCP project: `your-gcp-project-id`
 - Cloud Run region: `asia-northeast1`
 - Cloud Run service: `speech-assistant-realtime`
 - Secret Manager secret: `openai-api-key`
@@ -16,7 +16,7 @@
 
 ```bash
 gcloud run deploy speech-assistant-realtime \
-  --project aipartner-426616 \
+  --project your-gcp-project-id \
   --region asia-northeast1 \
   --source . \
   --allow-unauthenticated \
@@ -27,7 +27,7 @@ gcloud run deploy speech-assistant-realtime \
   --cpu 1 \
   --memory 512Mi \
   --set-secrets OPENAI_API_KEY=openai-api-key:latest,TWILIO_AUTH_TOKEN=twilio-auth-token:latest \
-  --set-env-vars REALTIME_MODEL=gpt-realtime-1.5,TRANSCRIPTION_MODEL=gpt-4o-transcribe,EXTRACTION_MODEL=gpt-5.4-mini,EXTRACTION_ENABLED=true,VOICE=marin,AUDIO_FORMAT=audio/pcmu,AUDIO_NOISE_REDUCTION=near_field,VAD_TYPE=server_vad,VAD_THRESHOLD=0.65,VAD_PREFIX_PADDING_MS=300,VAD_SILENCE_DURATION_MS=700,VAD_EAGERNESS=low,LOG_TRANSCRIPTS=false,LOG_REALTIME_EVENTS=false,LOG_OPENAI_RESPONSES=false,TWILIO_SIGNATURE_VALIDATION_ENABLED=true,TWILIO_WEBHOOK_URL=https://speech-assistant-realtime-mggisi6odq-an.a.run.app/incoming-call,GOOGLE_CLOUD_PROJECT=aipartner-426616,CALL_LOG_FIRESTORE_ENABLED=true,CALL_LOG_FIRESTORE_DATABASE_ID=speech-assistant-logs,CALL_LOG_FIRESTORE_COLLECTION=callLogs,CALL_LOG_SHEETS_ENABLED=true,GOOGLE_SHEETS_SPREADSHEET_ID=11klH3hxWcIWKLOVTBJGxPjATG5aai0a6D8z_F6yUO1A
+  --set-env-vars REALTIME_MODEL=gpt-realtime-1.5,TRANSCRIPTION_MODEL=gpt-4o-transcribe,EXTRACTION_MODEL=gpt-5.4-mini,EXTRACTION_ENABLED=true,VOICE=marin,AUDIO_FORMAT=audio/pcmu,AUDIO_NOISE_REDUCTION=near_field,VAD_TYPE=server_vad,VAD_THRESHOLD=0.65,VAD_PREFIX_PADDING_MS=300,VAD_SILENCE_DURATION_MS=700,VAD_EAGERNESS=low,LOG_TRANSCRIPTS=false,LOG_REALTIME_EVENTS=false,LOG_OPENAI_RESPONSES=false,TWILIO_SIGNATURE_VALIDATION_ENABLED=true,TWILIO_WEBHOOK_URL=https://your-app.run.app/incoming-call,GOOGLE_CLOUD_PROJECT=your-gcp-project-id,CALL_LOG_FIRESTORE_ENABLED=true,CALL_LOG_FIRESTORE_DATABASE_ID=your-firestore-database-id,CALL_LOG_FIRESTORE_COLLECTION=callLogs,CALL_LOG_SHEETS_ENABLED=true,GOOGLE_SHEETS_SPREADSHEET_ID=your-spreadsheet-id
 ```
 
 ## CI/CD
@@ -42,7 +42,7 @@ Cloud Runデプロイ後、サービスURLが次のように得られます。
 
 ```bash
 gcloud run services describe speech-assistant-realtime \
-  --project aipartner-426616 \
+  --project your-gcp-project-id \
   --region asia-northeast1 \
   --format='value(status.url)'
 ```
@@ -57,9 +57,9 @@ https://<cloud-run-url>/incoming-call
 
 ## 通話ログ
 
-通話ログは既存Firebaseのdefault databaseではなく、専用Firestore named database `speech-assistant-logs` の `callLogs` に保存します。Google Sheets `11klH3hxWcIWKLOVTBJGxPjATG5aai0a6D8z_F6yUO1A` は運用ビューとして通話終了時に1行追記します。
+通話ログは既存Firebaseのdefault databaseではなく、専用Firestore named database `your-firestore-database-id` の `callLogs` に保存します。Google Sheets `your-spreadsheet-id` は運用ビューとして通話終了時に1行追記します。
 
-Cloud Run実行サービスアカウント `639959525777-compute@developer.gserviceaccount.com` を、対象スプレッドシートの編集者として共有してください。
+Cloud Run実行サービスアカウント `<service-account>@<project>.iam.gserviceaccount.com` を、対象スプレッドシートの編集者として共有してください。
 
 ## 注意点
 

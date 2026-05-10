@@ -38,7 +38,7 @@ twilio api:core:incoming-phone-numbers:list --properties sid,phoneNumber,friendl
 Wave 1で確認した050番号:
 
 ```text
-+815017929351
++81-50-XXXX-9351
 ```
 
 ## ローカル確認
@@ -151,13 +151,13 @@ twilio api:core:incoming-phone-numbers:list --properties sid,phoneNumber,voiceUr
 
 ```bash
 twilio api:core:incoming-phone-numbers:update \
-  --sid PNd8122ab1cccb51d2ae53fca20eeb5a02 \
+  --sid PN****************************5a02 \
   --voice-url "$NGROK_URL/incoming-call" \
   --voice-method POST \
   --properties sid,phoneNumber,voiceUrl,voiceMethod
 ```
 
-`050-1792-9351` へ電話します。
+`050-XXXX-9351` へ電話します。
 
 期待ログ:
 
@@ -188,7 +188,7 @@ transcript: どんなことがあなたできるんですか?
 
 ```bash
 twilio api:core:incoming-phone-numbers:update \
-  --sid PNd8122ab1cccb51d2ae53fca20eeb5a02 \
+  --sid PN****************************5a02 \
   --voice-url https://demo.twilio.com/welcome/voice/ \
   --voice-method POST \
   --properties sid,phoneNumber,voiceUrl,voiceMethod

@@ -6,9 +6,9 @@
 
 ## 保存先
 
-- Firestore database: `speech-assistant-logs`
+- Firestore database: `your-firestore-database-id`
 - Collection: `callLogs`
-- Google Sheets: `11klH3hxWcIWKLOVTBJGxPjATG5aai0a6D8z_F6yUO1A`
+- Google Sheets: `your-spreadsheet-id`
 
 既存Firebaseのdefault databaseとは分け、他システムのデータと混ざらないようにします。
 
@@ -28,10 +28,10 @@ Google Sheetsの開始時刻・終了時刻は日本時間（Asia/Tokyo）の `Y
 ```text
 EXTRACTION_ENABLED=true
 CALL_LOG_FIRESTORE_ENABLED=true
-CALL_LOG_FIRESTORE_DATABASE_ID=speech-assistant-logs
+CALL_LOG_FIRESTORE_DATABASE_ID=your-firestore-database-id
 CALL_LOG_FIRESTORE_COLLECTION=callLogs
 CALL_LOG_SHEETS_ENABLED=true
-GOOGLE_SHEETS_SPREADSHEET_ID=11klH3hxWcIWKLOVTBJGxPjATG5aai0a6D8z_F6yUO1A
+GOOGLE_SHEETS_SPREADSHEET_ID=your-spreadsheet-id
 ```
 
 ## 検証手順
@@ -40,7 +40,7 @@ GOOGLE_SHEETS_SPREADSHEET_ID=11klH3hxWcIWKLOVTBJGxPjATG5aai0a6D8z_F6yUO1A
 2. `npm run check:realtime` でRealtime APIの疎通を確認する。
 3. `npm run smoke:media-stream` で音声返却を確認する。
 4. Cloud Runへデプロイし、050番号に実通話する。
-5. Firestore `speech-assistant-logs/callLogs` とSheetsの追記行を確認する。
+5. Firestore `your-firestore-database-id/callLogs` とSheetsの追記行を確認する。
 
 ## 次の拡張
 

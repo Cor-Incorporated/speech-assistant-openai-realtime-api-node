@@ -6,7 +6,7 @@
 
 - 電話AI本線はTwilio Media StreamsとOpenAI Realtime WebSocketでサーバー側に置く。
 - Cloud Runの `develop` 自動デプロイを開発環境の基準にする。
-- 通話ログの正本は専用Firestore `speech-assistant-logs` に置き、Sheetsは運用ビューとして扱う。
+- 通話ログの正本は専用Firestore `your-firestore-database-id` に置き、Sheetsは運用ビューとして扱う。
 - Reactは監視、設定、ナレッジ、引き継ぎのために使う。
 - 人間オペレーターの通話参加にはTwilio Voice SDKのWebRTCを使う。
 - モデル、VAD、音声、電話番号、ナレッジは設定として扱う。
@@ -14,10 +14,10 @@
 ## 現在完了している範囲
 
 - #3/#16 Cloud Run基盤、Secret Manager、CI/CD
-- #4/#18 050番号 `+815017929351` のCloud Run切替
+- #4/#18 050番号 `+81-50-XXXX-9351` のCloud Run切替
 - #5/#7 OpenAI Realtime GA形状、`gpt-realtime-1.5`、`gpt-4o-transcribe`
 - #8/#9 ローカル/Cloud Run/Twilio Media Streams検証
-- 通話ログ: Firestore `speech-assistant-logs/callLogs` とGoogle Sheetsへの追記
+- 通話ログ: Firestore `your-firestore-database-id/callLogs` とGoogle Sheetsへの追記
 - Sheets時刻のJST表示、電話番号の文字列化、エージェント発話重複排除
 
 ## 継続中のIssue
