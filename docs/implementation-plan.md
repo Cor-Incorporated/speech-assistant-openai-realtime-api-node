@@ -14,7 +14,7 @@
 ## 現在完了している範囲
 
 - #3/#16 Cloud Run基盤、Secret Manager、CI/CD
-- #4/#18 050番号 `+81-50-XXXX-9351` のCloud Run切替
+- #4/#18 Twilio番号 `<twilio-phone-number>` のCloud Run切替
 - #5/#7 OpenAI Realtime GA形状、`gpt-realtime-1.5`、`gpt-4o-transcribe`
 - #8/#9 ローカル/Cloud Run/Twilio Media Streams検証
 - 通話ログ: Firestore `your-firestore-database-id/callLogs` とGoogle Sheetsへの追記
