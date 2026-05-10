@@ -1,17 +1,18 @@
 # Historical Record: 開発履歴の記録
 
-このリポジトリは Cor.株式会社代表取締役・寺田康佑が個人プロジェクトとして開始した、OpenAI Realtime APIベースの音声アシスタント実装です。
+このリポジトリは Cor.株式会社代表取締役・寺田康佑が個人プロジェクトとして開始した、Twilio Voice Media Streams と OpenAI Realtime API を組み合わせた音声アシスタント実装です。
 
 ## リポジトリ起源
 
 - 初期コミット: 2024-10-14 (`1a4a248`)
 - 第2コミット: 2024-10-28 (`c0eb3af`)
 - 著者: 寺田康佑 (Cor.株式会社代表取締役)
-- ベース実装: OpenAI公式 `openai-realtime-api` サンプル (MITライセンス) からの派生
+- ベース実装: Twilio公式サンプル `twilio-samples/speech-assistant-openai-realtime-api-node` (MIT License, Copyright (c) 2024 Twilio Inc.) からの派生
+- 利用先 API: OpenAI Realtime API (WebSocket経由で音声応答を取得)、Twilio Voice / Media Streams (電話回線とメディアストリーム)
 - 公開リポジトリ: https://github.com/Cor-Incorporated/speech-assistant-openai-realtime-api-node
-- 公開ライセンス: MIT License (LICENSE参照)
+- 公開ライセンス: MIT License (LICENSE参照、ベース実装の Twilio Inc. の著作権表示を保持)
 - リポジトリ可視性: Public (誰でも閲覧可能)
-- stars: 3 (2026-05-10時点)
+- stars: 3 (2026-05-10 取得時点)
 
 ## 開発期間と境界線
 
@@ -53,13 +54,13 @@
 
 ## ベース実装
 
-本リポジトリはOpenAI公式 `openai-realtime-api` サンプル (MIT License) を基盤とした派生実装です。詳細は [THIRD_PARTY_LICENSES.md](./THIRD_PARTY_LICENSES.md) を参照してください。
+本リポジトリは Twilio公式サンプル `twilio-samples/speech-assistant-openai-realtime-api-node` (MIT License, Copyright (c) 2024 Twilio Inc.) を基盤とした派生実装です。OpenAI Realtime API は本実装の利用先 API として WebSocket 経由で呼び出します。詳細は [THIRD_PARTY_LICENSES.md](./THIRD_PARTY_LICENSES.md) を参照してください。
 
 ## 著作権
 
-- 本リポジトリのソースコード: Cor.株式会社 (代表取締役 寺田康佑)
-- ベース実装部分: OpenAI (MITライセンス)
-- 使用OSSの著作権: 各OSSの著作権者
+- 本リポジトリの Cor.独自実装部分: Cor.株式会社 (代表取締役 寺田康佑)
+- ベース実装部分: Twilio Inc. (MIT License、LICENSE 参照)
+- 使用OSSの著作権: 各OSSの著作権者 ([THIRD_PARTY_LICENSES.md](./THIRD_PARTY_LICENSES.md) 参照)
 
 ## ライセンス
 

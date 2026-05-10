@@ -4,32 +4,41 @@
 
 ## ベース実装
 
-- **OpenAI Realtime API サンプル実装** (MIT License)
-  - URL: https://github.com/openai/openai-realtime-api-beta
+- **Twilio公式サンプル `speech-assistant-openai-realtime-api-node`** (MIT License, Copyright (c) 2024 Twilio Inc.)
+  - URL: https://github.com/twilio-samples/speech-assistant-openai-realtime-api-node
   - 派生開始日: 2024-10-14 (本リポジトリ初期コミット日)
+  - ライセンス全文: 本リポジトリ `LICENSE` ファイル参照 (Twilio Inc. の MIT 著作権表示を保持)
+
+## 利用先 API
+
+本実装はランタイムで以下の外部 API を呼び出します。これらは依存ライブラリではなく、ネットワーク経由で利用するサービスです。
+
+- **OpenAI Realtime API** — WebSocket 経由で音声応答を取得 (https://platform.openai.com/docs/)
+- **Twilio Voice / Media Streams** — 電話回線とメディアストリーム (https://www.twilio.com/docs/voice/media-streams)
+- **Google Cloud Firestore / Sheets API** — 通話ログ永続化 (オプション機能、env で有効化)
 
 ## 直接依存 (`dependencies`)
 
-`package.json` の `dependencies` フィールドから抽出した直接依存のOSSライブラリ一覧です。各ライブラリのライセンス全文は、それぞれのパッケージに同梱の `LICENSE` ファイルおよび `package.json` の `license` フィールドを参照してください。
+`package.json` の `dependencies` フィールドから抽出した直接依存のOSSライブラリ一覧です。各ライブラリの公開ライセンス (npm registry の `license` フィールド準拠) を併記します。ライセンス全文は、それぞれのパッケージに同梱の `LICENSE` ファイルを参照してください。
 
-- **@fastify/formbody** ^8.0.0 — License: 各パッケージのpackage.json/LICENSEを参照 (Fastify エコシステムは一般に MIT License で公開)
+- **@fastify/formbody** ^8.0.0 — MIT License
   - npm: https://www.npmjs.com/package/@fastify/formbody
-- **@fastify/websocket** ^11.0.0 — License: 各パッケージのpackage.json/LICENSEを参照 (Fastify エコシステムは一般に MIT License で公開)
+- **@fastify/websocket** ^11.0.0 — MIT License
   - npm: https://www.npmjs.com/package/@fastify/websocket
-- **@google-cloud/firestore** ^8.5.0 — License: 各パッケージのpackage.json/LICENSEを参照 (Google Cloud Client Libraries は一般に Apache License 2.0 で公開)
+- **@google-cloud/firestore** ^8.5.0 — Apache License 2.0
   - npm: https://www.npmjs.com/package/@google-cloud/firestore
-- **dotenv** ^16.4.5 — License: 各パッケージのpackage.json/LICENSEを参照 (BSD-2-Clause で公開)
+- **dotenv** ^16.4.5 — BSD-2-Clause License
   - npm: https://www.npmjs.com/package/dotenv
-- **fastify** ^5.0.0 — License: 各パッケージのpackage.json/LICENSEを参照 (MIT License で公開)
+- **fastify** ^5.0.0 — MIT License
   - npm: https://www.npmjs.com/package/fastify
-- **googleapis** ^171.4.0 — License: 各パッケージのpackage.json/LICENSEを参照 (Google API Client Libraries は一般に Apache License 2.0 で公開)
+- **googleapis** ^171.4.0 — Apache License 2.0
   - npm: https://www.npmjs.com/package/googleapis
-- **ws** ^8.18.0 — License: 各パッケージのpackage.json/LICENSEを参照 (MIT License で公開)
+- **ws** ^8.18.0 — MIT License
   - npm: https://www.npmjs.com/package/ws
 
 ## ランタイム
 
-- **Node.js** 22+ (MIT-style License) — https://nodejs.org/
+- **Node.js** 22+ (MIT License) — https://nodejs.org/
 
 ## 重要事項
 

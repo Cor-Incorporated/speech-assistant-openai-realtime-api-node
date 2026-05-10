@@ -1,7 +1,7 @@
 #  Twilio VoiceとOpenAI Realtime APIを使用した音声アシスタント（Node.js）
 
 > **このリポジトリは Cor.株式会社の独自実装です。**
-> 2024年10月から個人プロジェクトとして開発・公開されているOSSプロジェクトであり、ベース実装は OpenAI 公式 `openai-realtime-api` サンプル (MIT License) を派生したものです。
+> 2024年10月から個人プロジェクトとして開発・公開されているOSSプロジェクトであり、ベース実装は Twilio 公式サンプル `twilio-samples/speech-assistant-openai-realtime-api-node` (MIT License, Copyright (c) 2024 Twilio Inc.) を派生したものです。OpenAI Realtime API は本実装の利用先 API として呼び出します。
 > 詳細は [HISTORICAL_RECORD.md](./HISTORICAL_RECORD.md) を、依存OSSは [THIRD_PARTY_LICENSES.md](./THIRD_PARTY_LICENSES.md) を参照してください。
 > 特定顧客向けカスタマイズは本リポジトリには含まれておらず、別途非公開リポジトリで管理しています。
 
