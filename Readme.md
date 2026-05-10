@@ -6,6 +6,12 @@
 > 詳細は [HISTORICAL_RECORD.md](./HISTORICAL_RECORD.md) を、依存OSSは [THIRD_PARTY_LICENSES.md](./THIRD_PARTY_LICENSES.md) を参照してください。
 > デプロイ先ごとのシステムプロンプト、運用識別子、顧客固有設定は本リポジトリには含めません。
 
+## Cor. Cloud Run Preview
+
+Cor.管理の検証用デプロイは [Cloud Run UI](https://speech-assistant-realtime-mggisi6odq-an.a.run.app/app/) で確認できます。`/app` と `/api/admin/*` はHTTP Basic認証で保護され、通話一覧・抽出結果・ランタイム設定・ログ保存ポリシーを確認するための汎用管理UIとして実装しています。
+
+このURLはCor.側の検証環境です。顧客・提携先へ引き渡すリポジトリや資料では、実URLではなく `https://<cloud-run-host>/app/` のようなプレースホルダーに置き換えてください。
+
 このアプリケーションは、Node.js、[Twilio Voice](https://www.twilio.com/docs/voice)と[Media Streams](https://www.twilio.com/docs/voice/media-streams)、[OpenAIのRealtime API](https://platform.openai.com/docs/)を使用して、AIアシスタントとの電話会話を可能にする方法を示しています。 
 
 このアプリケーションは、OpenAI Realtime APIとTwilioとの間でウェブソケットを開き、音声オーディオを一方からもう一方に送信して、二方向の会話を可能にします。
@@ -85,5 +91,17 @@ OpenAI Realtime APIへのWebSocket接続だけを確認する場合は、以下�
 ```
 npm run check:realtime
 ```
+
+### 管理UIをビルド
+
+管理UIを含めて検証する場合は、以下を実行します：
+
+```
+npm run build:frontend
+ADMIN_BASIC_USER=admin ADMIN_BASIC_PASSWORD=change-me npm run start
+```
+
+起動後、`http://localhost:5050/app/` にアクセスします。認証情報は `.env` または環境変数で設定してください。
+
 ## アプリをテスト
 開発サーバーが動作している間に、**必要条件**で購入した電話番号に電話をかけてください。紹介後、AIアシスタントと話すことができます。楽しんでください！

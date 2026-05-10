@@ -1,0 +1,19 @@
+@import "tailwindcss";
+
+html {
+    color-scheme: light;
+}
+
+body {
+    margin: 0;
+    background: #f8fafc;
+    color: #0f172a;
+    font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+button,
+input,
+select,
+textarea {
+    font: inherit;
+}
