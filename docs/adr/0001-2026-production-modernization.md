@@ -27,7 +27,7 @@
 4. サーバーからReactへ、WebSocketまたはSSEで通話状態、文字起こし、VAD、AIイベント、パスアップ通知を配信する。
 5. 人間オペレーターのブラウザ通話にはTwilio Voice JavaScript SDKを使う。これはブラウザとTwilio間のWebRTCであり、顧客電話を直接ブラウザへつなぐものではない。
 6. AI/顧客/オペレーターの管理にはTwilio Conferenceを使う。これにより参加、ミュート、削除、保留、将来のコーチングが扱いやすくなる。
-7. Realtimeモデルは `gpt-realtime-1.5` を既定とし、モデル名、音声、文字起こし、VAD、抽出モデルは環境変数または設定として管理する。
+7. Realtimeモデル名、reasoning effort、音声、文字起こし、VAD、抽出モデルは環境変数または設定として管理する。2026-04時点の既定は `gpt-realtime-1.5`、2026-05-10以降の既定は `gpt-realtime-2` + `REALTIME_REASONING_EFFORT=low` とする。
 8. 本番はGoogle Cloud Runへデプロイし、秘密情報はSecret Managerへ置く。WebSocket長時間接続のtimeoutと再接続方針を明記する。
 
 ## 目標アーキテクチャ
@@ -75,6 +75,8 @@ Reactオペレーターコンソール
 ## 参考
 
 - OpenAI Realtime model: https://developers.openai.com/api/docs/models/gpt-realtime
+- OpenAI Realtime 2 model: https://developers.openai.com/api/docs/models/gpt-realtime-2
+- Realtime model selection: ../realtime-model-selection.md
 - OpenAI Realtime VAD: https://developers.openai.com/api/docs/guides/realtime-vad
 - OpenAI Realtime WebSocket: https://developers.openai.com/api/docs/guides/realtime-websocket
 - Google Cloud Run WebSockets: https://docs.cloud.google.com/run/docs/triggering/websockets

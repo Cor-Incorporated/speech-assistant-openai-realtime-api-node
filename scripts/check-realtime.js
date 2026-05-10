@@ -5,7 +5,8 @@ dotenv.config();
 
 const {
     OPENAI_API_KEY,
-    REALTIME_MODEL = 'gpt-realtime-1.5',
+    REALTIME_MODEL = 'gpt-realtime-2',
+    REALTIME_REASONING_EFFORT = 'low',
     REALTIME_CHECK_TIMEOUT_MS = '10000',
     TRANSCRIPTION_MODEL = 'gpt-4o-transcribe',
     VOICE = 'marin',
@@ -26,6 +27,7 @@ if (!OPENAI_API_KEY) {
 const timeoutMs = Number(REALTIME_CHECK_TIMEOUT_MS);
 const url = `wss://api.openai.com/v1/realtime?model=${encodeURIComponent(REALTIME_MODEL)}`;
 const redactSecrets = (message) => message.replace(/sk-[^\s.]+/g, 'sk-***');
+const shouldSetRealtimeReasoning = REALTIME_MODEL.startsWith('gpt-realtime-2');
 const buildTurnDetectionConfig = () => {
     if (VAD_TYPE === 'semantic_vad') {
         return {
@@ -46,9 +48,8 @@ const buildTurnDetectionConfig = () => {
     };
 };
 
-const sessionUpdate = {
-    type: 'session.update',
-    session: {
+const buildSessionUpdate = () => {
+    const session = {
         type: 'realtime',
         model: REALTIME_MODEL,
         instructions: 'Realtime connectivity check. Keep responses brief.',
@@ -64,8 +65,21 @@ const sessionUpdate = {
                 voice: VOICE
             }
         }
+    };
+
+    if (shouldSetRealtimeReasoning) {
+        session.reasoning = {
+            effort: REALTIME_REASONING_EFFORT
+        };
     }
+
+    return {
+        type: 'session.update',
+        session
+    };
 };
+
+const sessionUpdate = buildSessionUpdate();
 
 const ws = new WebSocket(url, {
     headers: {
