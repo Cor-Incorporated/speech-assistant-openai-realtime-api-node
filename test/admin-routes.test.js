@@ -35,6 +35,22 @@ class FakeStore {
         this.records.set(callSid, record);
         return structuredClone(record);
     }
+
+    async deleteTestOrEmptyLogs() {
+        const items = [];
+        for (const [callSid, record] of this.records.entries()) {
+            const turns = Array.isArray(record.turns) ? record.turns : [];
+            const isEmpty = !String(record.transcript || '').trim()
+                && turns.length === 0
+                && !String(record.summary || '').trim()
+                && !String(record.intent || '').trim();
+            if (callSid.startsWith('CA_SMOKE') || isEmpty) {
+                this.records.delete(callSid);
+                items.push({ id: callSid, callSid });
+            }
+        }
+        return { deleted: items.length, items };
+    }
 }
 
 class FakeSettingsStore {
@@ -221,7 +237,7 @@ test('admin routes handle Basic Auth credentials strictly', async () => {
     assert.equal(lowercaseScheme.statusCode, 200);
 });
 
-test('call log list masks phone fields and PII text while omitting transcript bodies', async () => {
+test('call log list exposes admin phone fields while omitting transcript bodies', async () => {
     const app = await buildApp();
 
     const response = await app.inject({
@@ -233,28 +249,27 @@ test('call log list masks phone fields and PII text while omitting transcript bo
     assert.equal(response.statusCode, 200);
     const body = response.json();
     assert.equal(body.count, 1);
-    assert.equal(body.items[0].fromDisplay, '+****5678');
-    assert.equal(body.items[0].toDisplay, '+****2222');
-    assert.equal(body.items[0].customerPhoneDisplay, '****8888');
-    assert.equal(body.items[0].summary, '予約相談 ****5678');
-    assert.equal(body.items[0].from, undefined);
-    assert.equal(body.items[0].to, undefined);
-    assert.equal(body.items[0].customerPhoneNumber, undefined);
+    assert.equal(body.items[0].from, '+819012345678');
+    assert.equal(body.items[0].to, '+81311112222');
+    assert.equal(body.items[0].customerPhoneNumber, '09099998888');
+    assert.equal(body.items[0].fromDisplay, '+819012345678');
+    assert.equal(body.items[0].toDisplay, '+81311112222');
+    assert.equal(body.items[0].customerPhoneDisplay, '09099998888');
+    assert.equal(body.items[0].summary, '予約相談 090-1234-5678');
     assert.equal(body.items[0].accountSid, undefined);
     assert.equal(body.items[0].streamSid, undefined);
     assert.equal(body.items[0].internalOperatorNote, undefined);
     assert.equal(body.items[0].transcript, undefined);
     assert.equal(body.items[0].turns, undefined);
-    assert.equal(body.items[0].extraction.customerPhoneNumber, undefined);
-    assert.equal(body.items[0].extraction.customerPhoneDisplay, '****2222');
-    assert.equal(body.items[0].extraction.summary, '予約相談 ****5678');
-    assert.equal(body.items[0].extraction.alternatePhoneNumber, '****3333');
+    assert.equal(body.items[0].extraction.customerPhoneNumber, '08011112222');
+    assert.equal(body.items[0].extraction.summary, '予約相談 090-1234-5678');
+    assert.equal(body.items[0].extraction.alternatePhoneNumber, '090-2222-3333');
     assert.doesNotMatch(response.body, /raw transcript/);
-    assert.doesNotMatch(response.body, /090-1234-5678/);
-    assert.doesNotMatch(response.body, /090-2222-3333/);
+    assert.match(response.body, /090-1234-5678/);
+    assert.match(response.body, /090-2222-3333/);
 });
 
-test('call log detail is protected and redacts phone PII in transcript text', async () => {
+test('call log detail is protected and exposes full admin phone fields', async () => {
     const app = await buildApp();
 
     const response = await app.inject({
@@ -266,20 +281,21 @@ test('call log detail is protected and redacts phone PII in transcript text', as
     assert.equal(response.statusCode, 200);
     const body = response.json();
     assert.equal(body.callSid, 'call-1');
+    assert.equal(body.from, '+819012345678');
+    assert.equal(body.to, '+81311112222');
+    assert.equal(body.customerPhoneNumber, '09099998888');
     assert.equal(body.isSmokeTest, false);
-    assert.match(body.transcript, /Phone \*\*\*\*5678 and \+\*\*\*\*2222/);
-    assert.equal(body.turns[0].text, 'hello from ****2222');
-    assert.equal(body.from, undefined);
-    assert.equal(body.to, undefined);
+    assert.match(body.transcript, /Phone 090-1234-5678 and \+819011112222/);
+    assert.equal(body.turns[0].text, 'hello from 080-1111-2222');
     assert.equal(body.accountSid, undefined);
     assert.equal(body.streamSid, undefined);
     assert.equal(body.internalOperatorNote, undefined);
-    assert.equal(body.fromDisplay, '+****5678');
-    assert.equal(body.customerPhoneDisplay, '****8888');
+    assert.equal(body.fromDisplay, '+819012345678');
+    assert.equal(body.customerPhoneDisplay, '09099998888');
     assert.equal(body.disconnectReasonLabel, 'Twilio Media Streamsが理由コードなしで切断しました');
-    assert.doesNotMatch(response.body, /090-1234-5678/);
-    assert.doesNotMatch(response.body, /\+819011112222/);
-    assert.doesNotMatch(response.body, /080-1111-2222/);
+    assert.match(response.body, /090-1234-5678/);
+    assert.match(response.body, /\+819011112222/);
+    assert.match(response.body, /080-1111-2222/);
 });
 
 test('ops patch only merges ops metadata and audits the update', async () => {
@@ -310,9 +326,9 @@ test('ops patch only merges ops metadata and audits the update', async () => {
     assert.equal(response.statusCode, 200);
     const body = response.json();
     assert.equal(body.ops.status, 'needs_callback');
-    assert.equal(body.ops.memo, 'call ****5555 tomorrow');
-    assert.match(body.transcript, /Phone \*\*\*\*5678/);
-    assert.equal(body.summary, '予約相談 ****5678');
+    assert.equal(body.ops.memo, 'call 090-4444-5555 tomorrow');
+    assert.match(body.transcript, /Phone 090-1234-5678/);
+    assert.equal(body.summary, '予約相談 090-1234-5678');
 
     const stored = await store.get('call-1');
     assert.equal(stored.transcript, sampleRecord.transcript);
@@ -322,6 +338,39 @@ test('ops patch only merges ops metadata and audits the update', async () => {
     assert.equal(auditEvents.length, 1);
     assert.equal(auditEvents[0].action, 'admin.call_log.ops_update');
     assert.deepEqual(auditEvents[0].details.metadata.keys, ['status', 'memo']);
+});
+
+test('test and empty call log cleanup deletes only safe candidates', async () => {
+    const store = new FakeStore([
+        sampleRecord,
+        {
+            callSid: 'CA_SMOKE_1',
+            transcript: '',
+            turns: [],
+            summary: '',
+            intent: ''
+        },
+        {
+            callSid: 'CA_EMPTY_1',
+            transcript: '',
+            turns: [],
+            summary: '',
+            intent: ''
+        }
+    ]);
+    const app = await buildApp({ store });
+
+    const response = await app.inject({
+        method: 'DELETE',
+        url: '/api/admin/call-logs/test-or-empty',
+        headers: authHeader()
+    });
+
+    assert.equal(response.statusCode, 200);
+    assert.equal(response.json().deleted, 2);
+    assert.equal(await store.get('call-1') !== null, true);
+    assert.equal(await store.get('CA_SMOKE_1'), null);
+    assert.equal(await store.get('CA_EMPTY_1'), null);
 });
 
 test('empty Firestore collection returns an empty admin API payload', async () => {

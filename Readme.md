@@ -103,7 +103,9 @@ ADMIN_BASIC_USER=admin ADMIN_BASIC_PASSWORD=change-me npm run start
 
 起動後、`http://localhost:5050/app/` にアクセスします。認証情報は `.env` または環境変数で設定してください。
 
-管理UIの「対応内容を保存」はFirestore `callLogs` の各通話ドキュメントに `ops` として保存します。対応ステータスを `完了` にした通話は、一覧の `完了` フィルタで確認できます。
+管理UIの「対応内容を保存」はFirestore `callLogs` の各通話ドキュメントに `ops` として保存します。対応ステータスを `完了` にした通話は、一覧の `完了` フィルタで確認できます。管理UI/APIはBasic認証済み管理者だけが見る前提のため、発信者番号・着信番号・顧客電話番号はマスクせず表示します。
+
+`検証ログ削除` は、`CA_SMOKE` で始まる疎通確認ログと、文字起こし・turns・要約・用件がすべて空のログだけを削除します。
 
 管理UIのRealtimeモデル選択はFirestore `runtimeSettings/admin` に保存され、次回以降の新しい通話から `gpt-realtime-1.5` / `gpt-realtime-2` の選択が反映されます。進行中の通話には反映しません。
 

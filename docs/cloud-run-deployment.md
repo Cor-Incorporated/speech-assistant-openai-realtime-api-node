@@ -65,6 +65,8 @@ https://<cloud-run-url>/incoming-call
 
 対応ステータス、折り返し状況、担当者、メモはFirestore `callLogs` の対象通話ドキュメントに `ops` として保存します。RealtimeモデルのUI選択はFirestore `runtimeSettings/admin` に保存し、次回以降の新規通話で利用します。Cloud Runのローカルファイルシステム上のSQLiteはインスタンス・revisionを跨ぐ永続DBとして扱わず、Cloud Run運用ではFirestoreを正とします。
 
+管理UI/APIはBasic認証済み管理者だけが見る前提のため、発信者番号・着信番号・顧客電話番号はマスクせず表示します。`検証ログ削除` は `CA_SMOKE` で始まる疎通確認ログと、会話内容が空のログだけを削除します。
+
 ## 通話ログ
 
 通話ログは既存Firebaseのdefault databaseではなく、専用Firestore named database `your-firestore-database-id` の `callLogs` に保存します。Google Sheets `your-spreadsheet-id` は運用ビューとして通話終了時に1行追記します。

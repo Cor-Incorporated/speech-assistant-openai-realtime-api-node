@@ -22,6 +22,9 @@ type CallLog = {
     disconnectReasonLabel?: string;
     disconnectReasonCategory?: string;
     openAiError?: string;
+    from?: string;
+    to?: string;
+    customerPhoneNumber?: string;
     fromDisplay?: string;
     toDisplay?: string;
     customerPhoneDisplay?: string;
@@ -238,9 +241,11 @@ function App() {
     const [detailStatus, setDetailStatus] = useState<LoadState>('idle');
     const [saveStatus, setSaveStatus] = useState<LoadState>('idle');
     const [settingsSaveStatus, setSettingsSaveStatus] = useState<LoadState>('idle');
+    const [cleanupStatus, setCleanupStatus] = useState<LoadState>('idle');
     const [error, setError] = useState('');
     const [saveError, setSaveError] = useState('');
     const [settingsError, setSettingsError] = useState('');
+    const [cleanupMessage, setCleanupMessage] = useState('');
     const [filter, setFilter] = useState<Filter>('all');
     const [runtimeDraft, setRuntimeDraft] = useState({
         realtimeModel: 'gpt-realtime-2',
@@ -429,6 +434,26 @@ function App() {
         }
     };
 
+    const cleanupTestLogs = async () => {
+        if (!window.confirm('CA_SMOKEで始まる検証ログと、会話内容が空のログを削除します。よろしいですか。')) {
+            return;
+        }
+
+        setCleanupStatus('loading');
+        setCleanupMessage('');
+        try {
+            const result = await fetchJson<{ deleted: number }>('/api/admin/call-logs/test-or-empty?limit=500', {
+                method: 'DELETE'
+            });
+            setCleanupMessage(`${result.deleted}件の検証/空ログを削除しました`);
+            setCleanupStatus('ready');
+            await loadDashboard();
+        } catch (cleanupErrorValue) {
+            setCleanupMessage(cleanupErrorValue instanceof Error ? cleanupErrorValue.message : '検証ログ削除に失敗しました');
+            setCleanupStatus('error');
+        }
+    };
+
     return (
         <main className="min-h-dvh bg-slate-50 px-4 py-6 text-slate-900 sm:px-6 lg:px-8" aria-busy={isDashboardLoading}>
             <div className="mx-auto grid w-full min-w-0 max-w-7xl gap-6">
@@ -437,19 +462,42 @@ function App() {
                         <p className="text-sm font-medium text-slate-500">Cor Voice Admin</p>
                         <h1 className="text-balance text-2xl font-semibold text-slate-950">通話ログ管理</h1>
                     </div>
-                    <button
-                        type="button"
-                        onClick={loadDashboard}
-                        className="w-fit rounded border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-400 disabled:opacity-60"
-                        disabled={isDashboardLoading}
-                    >
-                        {isDashboardLoading ? '読み込み中' : '再読み込み'}
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                        <button
+                            type="button"
+                            onClick={cleanupTestLogs}
+                            className="w-fit rounded border border-red-200 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 focus:outline-none focus:ring-2 focus:ring-red-200 disabled:opacity-60"
+                            disabled={cleanupStatus === 'loading'}
+                        >
+                            {cleanupStatus === 'loading' ? '削除中' : '検証ログ削除'}
+                        </button>
+                        <button
+                            type="button"
+                            onClick={loadDashboard}
+                            className="w-fit rounded border border-slate-300 bg-white px-4 py-2 text-sm font-medium hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-slate-400 disabled:opacity-60"
+                            disabled={isDashboardLoading}
+                        >
+                            {isDashboardLoading ? '読み込み中' : '再読み込み'}
+                        </button>
+                    </div>
                 </header>
 
                 {error && (
                     <div className="rounded border border-red-200 bg-red-50 p-4 text-sm text-red-800" role="alert">
                         {error}
+                    </div>
+                )}
+                {cleanupMessage && (
+                    <div
+                        className={cn(
+                            'rounded border p-4 text-sm',
+                            cleanupStatus === 'error'
+                                ? 'border-red-200 bg-red-50 text-red-800'
+                                : 'border-emerald-200 bg-emerald-50 text-emerald-800'
+                        )}
+                        role={cleanupStatus === 'error' ? 'alert' : 'status'}
+                    >
+                        {cleanupMessage}
                     </div>
                 )}
 
@@ -503,7 +551,8 @@ function App() {
                             <div className="overflow-hidden rounded border border-slate-200 bg-white">
                                 <div className="divide-y divide-slate-100">
                                     {filteredLogs.map((log) => {
-                                        const phoneDisplay = log.customerPhoneDisplay || log.fromDisplay || '-';
+                                        const fromPhone = log.from || log.fromDisplay || '-';
+                                        const toPhone = log.to || log.toDisplay || '-';
 
                                         return (
                                             <button
@@ -530,7 +579,8 @@ function App() {
                                                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
                                                     <span className="tabular-nums">{formatDate(log.startedAt)}</span>
                                                     <span className="tabular-nums">{formatDuration(log.durationSeconds || 0)}</span>
-                                                    <span className="tabular-nums">発信 {phoneDisplay}</span>
+                                                    <span className="tabular-nums">発信 {fromPhone}</span>
+                                                    <span className="tabular-nums">着信 {toPhone}</span>
                                                 </div>
                                             </button>
                                         );
@@ -557,11 +607,15 @@ function App() {
                                     <dl className="grid grid-cols-2 gap-3 text-sm">
                                         <div className="min-w-0">
                                             <dt className="text-slate-500">発信者</dt>
-                                            <dd className="break-words font-medium">{selectedLog.fromDisplay || '-'}</dd>
+                                            <dd className="break-words font-medium">{selectedLog.from || selectedLog.fromDisplay || '-'}</dd>
+                                        </div>
+                                        <div className="min-w-0">
+                                            <dt className="text-slate-500">着信番号</dt>
+                                            <dd className="break-words font-medium">{selectedLog.to || selectedLog.toDisplay || '-'}</dd>
                                         </div>
                                         <div className="min-w-0">
                                             <dt className="text-slate-500">顧客電話</dt>
-                                            <dd className="break-words font-medium">{selectedLog.customerPhoneDisplay || '-'}</dd>
+                                            <dd className="break-words font-medium">{selectedLog.customerPhoneNumber || selectedLog.customerPhoneDisplay || '-'}</dd>
                                         </div>
                                         <div className="min-w-0">
                                             <dt className="text-slate-500">希望日時</dt>
