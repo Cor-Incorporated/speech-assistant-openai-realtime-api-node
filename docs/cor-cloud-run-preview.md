@@ -10,7 +10,6 @@ This repository is deployed by Cor.株式会社 to the following Google Cloud Ru
 | GCP project name | `AIPartner` |
 | Region | `asia-northeast1` |
 | Cloud Run service | `speech-assistant-realtime` |
-| Latest verified revision | `speech-assistant-realtime-00021-cfk` |
 | Service URL | `https://speech-assistant-realtime-mggisi6odq-an.a.run.app` |
 
 ## Exact URLs
@@ -34,6 +33,11 @@ This repository is deployed by Cor.株式会社 to the following Google Cloud Ru
 ## Verification Commands
 
 ```bash
+gcloud run services describe speech-assistant-realtime \
+  --project aipartner-426616 \
+  --region asia-northeast1 \
+  --format='value(status.latestReadyRevisionName,status.url)'
+
 curl -fsS https://speech-assistant-realtime-mggisi6odq-an.a.run.app/health
 
 curl -fsS -u "$ADMIN_BASIC_USER:$ADMIN_BASIC_PASSWORD" \
