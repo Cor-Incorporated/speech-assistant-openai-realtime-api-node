@@ -10,6 +10,8 @@
 
 Cor.管理の検証用デプロイは [Cloud Run UI](https://speech-assistant-realtime-mggisi6odq-an.a.run.app/app/) で確認できます。`/app` と `/api/admin/*` はHTTP Basic認証で保護され、通話一覧・抽出結果・ランタイム設定・ログ保存ポリシーを確認するための汎用管理UIとして実装しています。
 
+正確なCloud Run URL、Twilio webhook、Media Streams WebSocket、管理API URLは [docs/cor-cloud-run-preview.md](./docs/cor-cloud-run-preview.md) に記録しています。
+
 このURLはCor.側の検証環境です。顧客・提携先へ引き渡すリポジトリや資料では、実URLではなく `https://<cloud-run-host>/app/` のようなプレースホルダーに置き換えてください。
 
 このアプリケーションは、Node.js、[Twilio Voice](https://www.twilio.com/docs/voice)と[Media Streams](https://www.twilio.com/docs/voice/media-streams)、[OpenAIのRealtime API](https://platform.openai.com/docs/)を使用して、AIアシスタントとの電話会話を可能にする方法を示しています。 

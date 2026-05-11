@@ -4,6 +4,8 @@
 
 ローカル検証済みのNode/Fastify + Twilio Media Streams + OpenAI Realtime構成を、Google Cloud Run上で常時起動できる最小基盤として動かします。
 
+Cor.株式会社の現在の検証用Cloud Run URLは [cor-cloud-run-preview.md](./cor-cloud-run-preview.md) を参照してください。
+
 ## 前提
 
 - GCP project: `your-gcp-project-id`
