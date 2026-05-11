@@ -63,6 +63,8 @@ https://<cloud-run-url>/incoming-call
 
 管理UIは `https://<cloud-run-url>/app/` で配信します。`/app` と `/api/admin/*` はHTTP Basic認証で保護されます。外部提供用のリポジトリや資料にはCor.検証環境の実URLを記載せず、`https://<cloud-run-host>/app/` のようなプレースホルダーを使います。
 
+対応ステータス、折り返し状況、担当者、メモはFirestore `callLogs` の対象通話ドキュメントに `ops` として保存します。RealtimeモデルのUI選択はFirestore `runtimeSettings/admin` に保存し、次回以降の新規通話で利用します。Cloud Runのローカルファイルシステム上のSQLiteはインスタンス・revisionを跨ぐ永続DBとして扱わず、Cloud Run運用ではFirestoreを正とします。
+
 ## 通話ログ
 
 通話ログは既存Firebaseのdefault databaseではなく、専用Firestore named database `your-firestore-database-id` の `callLogs` に保存します。Google Sheets `your-spreadsheet-id` は運用ビューとして通話終了時に1行追記します。

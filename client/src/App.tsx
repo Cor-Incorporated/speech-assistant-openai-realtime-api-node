@@ -6,10 +6,12 @@ type Summary = {
     callbackRequired: number;
     inProgress: number;
     completed: number;
+    needsReview?: number;
 };
 
 type CallLog = {
     callSid: string;
+    isSmokeTest?: boolean;
     startedAt?: string;
     startedAtJst?: string;
     endedAt?: string;
@@ -17,6 +19,8 @@ type CallLog = {
     durationSeconds?: number;
     status?: string;
     disconnectReason?: string;
+    disconnectReasonLabel?: string;
+    disconnectReasonCategory?: string;
     openAiError?: string;
     fromDisplay?: string;
     toDisplay?: string;
@@ -40,8 +44,22 @@ type CallLog = {
 type RuntimeConfig = {
     models?: {
         realtime?: string;
+        realtimeOptions?: Array<{
+            value: string;
+            label: string;
+            description?: string;
+            supportsReasoning?: boolean;
+        }>;
+        realtimeReasoningEffort?: string;
+        realtimeReasoningEffortOptions?: string[];
         transcription?: string;
         extraction?: string;
+    };
+    runtimeSettings?: {
+        source?: string;
+        updatedAt?: string;
+        updatedBy?: string;
+        writable?: boolean;
     };
     voice?: string;
     vad?: {
@@ -75,7 +93,7 @@ type Policy = {
 };
 
 type LoadState = 'idle' | 'loading' | 'ready' | 'error';
-type Filter = 'all' | 'callback' | 'unresolved' | 'review';
+type Filter = 'all' | 'unresolved' | 'callback' | 'review' | 'done';
 
 const fetchJson = async <T,>(path: string, init?: RequestInit): Promise<T> => {
     const url = new URL(path, window.location.origin);
@@ -123,9 +141,10 @@ const badgeClass = (tone: 'default' | 'warning' | 'success' | 'muted') => cn(
 
 const filters: Array<{ value: Filter; label: string }> = [
     { value: 'all', label: 'すべて' },
-    { value: 'callback', label: '折り返し' },
     { value: 'unresolved', label: '未完了' },
-    { value: 'review', label: '要確認' }
+    { value: 'callback', label: '折り返し' },
+    { value: 'review', label: '要確認' },
+    { value: 'done', label: '完了' }
 ];
 
 const callbackStatuses = [
@@ -141,6 +160,16 @@ const opsStatuses = [
     { value: 'in_progress', label: '対応中' },
     { value: 'done', label: '完了' }
 ];
+
+const optionLabel = (
+    options: Array<{ value: string; label: string }>,
+    value?: string
+) => options.find((option) => option.value === value)?.label || value || '-';
+
+const isPendingCallback = (log: CallLog) => Boolean(log.callbackRequired)
+    && !['completed', 'not_required'].includes(log.ops?.callbackStatus || '');
+
+const isUnresolved = (log: CallLog) => log.ops?.status !== 'done';
 
 const fieldClass = 'rounded border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-400';
 const settingRowClass = 'grid gap-1 sm:flex sm:items-start sm:justify-between sm:gap-4';
@@ -208,9 +237,15 @@ function App() {
     const [status, setStatus] = useState<LoadState>('idle');
     const [detailStatus, setDetailStatus] = useState<LoadState>('idle');
     const [saveStatus, setSaveStatus] = useState<LoadState>('idle');
+    const [settingsSaveStatus, setSettingsSaveStatus] = useState<LoadState>('idle');
     const [error, setError] = useState('');
     const [saveError, setSaveError] = useState('');
+    const [settingsError, setSettingsError] = useState('');
     const [filter, setFilter] = useState<Filter>('all');
+    const [runtimeDraft, setRuntimeDraft] = useState({
+        realtimeModel: 'gpt-realtime-2',
+        realtimeReasoningEffort: 'low'
+    });
     const [opsDraft, setOpsDraft] = useState({
         status: 'new',
         callbackStatus: 'pending',
@@ -219,6 +254,15 @@ function App() {
         needsReview: false
     });
     const isDashboardLoading = status === 'loading';
+    const modelOptions = runtimeConfig?.models?.realtimeOptions?.length
+        ? runtimeConfig.models.realtimeOptions
+        : [
+            { value: 'gpt-realtime-2', label: 'GPT Realtime 2', description: '受付MVP推奨' },
+            { value: 'gpt-realtime-1.5', label: 'GPT Realtime 1.5', description: '比較検証用' }
+        ];
+    const reasoningOptions = runtimeConfig?.models?.realtimeReasoningEffortOptions?.length
+        ? runtimeConfig.models.realtimeReasoningEffortOptions
+        : ['low', 'medium', 'high'];
 
     const loadDashboard = async () => {
         setStatus('loading');
@@ -274,6 +318,16 @@ function App() {
     }, []);
 
     useEffect(() => {
+        if (!runtimeConfig?.models) return;
+        setRuntimeDraft({
+            realtimeModel: runtimeConfig.models.realtime || 'gpt-realtime-2',
+            realtimeReasoningEffort: runtimeConfig.models.realtimeReasoningEffort || 'low'
+        });
+        setSettingsSaveStatus('idle');
+        setSettingsError('');
+    }, [runtimeConfig]);
+
+    useEffect(() => {
         if (!selectedCallSid) {
             setSelectedLog(null);
             setDetailStatus('idle');
@@ -321,9 +375,10 @@ function App() {
     };
 
     const filteredLogs = useMemo(() => logs.filter((log) => {
-        if (filter === 'callback') return Boolean(log.callbackRequired);
-        if (filter === 'unresolved') return log.ops?.status !== 'done';
+        if (filter === 'callback') return isPendingCallback(log);
+        if (filter === 'unresolved') return isUnresolved(log);
         if (filter === 'review') return Boolean(log.ops?.needsReview);
+        if (filter === 'done') return log.ops?.status === 'done';
         return true;
     }), [logs, filter]);
 
@@ -350,9 +405,27 @@ function App() {
                 needsReview: Boolean(updated.ops?.needsReview)
             });
             setSaveStatus('ready');
+            loadDashboard();
         } catch (saveErrorValue) {
             setSaveError(saveErrorValue instanceof Error ? saveErrorValue.message : '保存に失敗しました');
             setSaveStatus('error');
+        }
+    };
+
+    const saveRuntimeSettings = async (event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        setSettingsSaveStatus('loading');
+        setSettingsError('');
+        try {
+            const updated = await fetchJson<RuntimeConfig>('/api/admin/runtime-config', {
+                method: 'PATCH',
+                body: JSON.stringify(runtimeDraft)
+            });
+            setRuntimeConfig(updated);
+            setSettingsSaveStatus('ready');
+        } catch (settingsErrorValue) {
+            setSettingsError(settingsErrorValue instanceof Error ? settingsErrorValue.message : 'モデル設定の保存に失敗しました');
+            setSettingsSaveStatus('error');
         }
     };
 
@@ -383,9 +456,9 @@ function App() {
                 <section className="grid gap-3 md:grid-cols-4" aria-label="通話サマリー">
                     {[
                         ['総通話数', summary?.total ?? 0],
-                        ['折り返し必要', summary?.callbackRequired ?? 0],
-                        ['進行中', summary?.inProgress ?? 0],
-                        ['完了', summary?.completed ?? 0]
+                        ['未対応の折り返し', summary?.callbackRequired ?? 0],
+                        ['対応中', summary?.inProgress ?? 0],
+                        ['対応完了', summary?.completed ?? 0]
                     ].map(([label, value]) => (
                         <div key={label} className="rounded border border-slate-200 bg-white p-4">
                             <div className="text-sm text-slate-500">{label}</div>
@@ -446,10 +519,11 @@ function App() {
                                             >
                                                 <div className="flex flex-wrap items-center gap-2">
                                                     <span className="font-medium text-slate-950">{log.intent || '用件未分類'}</span>
+                                                    {log.isSmokeTest && <span className={badgeClass('muted')}>検証ログ</span>}
                                                     {log.callbackRequired && <span className={badgeClass('warning')}>折り返し</span>}
                                                     {log.ops?.needsReview && <span className={badgeClass('default')}>要確認</span>}
                                                     <span className={badgeClass(log.ops?.status === 'done' ? 'success' : 'muted')}>
-                                                        {log.ops?.status || 'new'}
+                                                        {optionLabel(opsStatuses, log.ops?.status || 'new')}
                                                     </span>
                                                 </div>
                                                 <p className="line-clamp-2 text-pretty text-sm text-slate-600">{log.summary || '要約はまだありません'}</p>
@@ -495,7 +569,10 @@ function App() {
                                         </div>
                                         <div className="min-w-0">
                                             <dt className="text-slate-500">切断理由</dt>
-                                            <dd className="truncate font-medium">{selectedLog.disconnectReason || selectedLog.openAiError || '-'}</dd>
+                                            <dd className="break-words font-medium">{selectedLog.disconnectReasonLabel || selectedLog.openAiError || '-'}</dd>
+                                            {selectedLog.disconnectReason && (
+                                                <dd className="mt-1 break-all text-xs text-slate-500">raw: {selectedLog.disconnectReason}</dd>
+                                            )}
                                         </div>
                                     </dl>
 
@@ -559,6 +636,7 @@ function App() {
                                         </label>
                                         {saveError && <p className="text-sm text-red-700" role="alert">{saveError}</p>}
                                         {saveStatus === 'ready' && <p className="text-sm text-emerald-700" role="status">保存しました</p>}
+                                        <p className="text-xs text-slate-500">対応ステータス、折り返し状況、担当者、メモはFirestoreに保存され、再読み込み後も残ります。</p>
                                         <button
                                             type="submit"
                                             className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-400 disabled:opacity-60"
@@ -573,8 +651,58 @@ function App() {
 
                         <section className="min-w-0 rounded border border-slate-200 bg-white p-5">
                             <h2 className="text-balance text-lg font-semibold">運用設定</h2>
+                            <form className="mt-4 grid gap-3 border-b border-slate-200 pb-4 text-sm" onSubmit={saveRuntimeSettings}>
+                                <label className="grid gap-1">
+                                    <span className="font-medium text-slate-700">Realtimeモデル</span>
+                                    <select
+                                        value={runtimeDraft.realtimeModel}
+                                        onChange={(event) => setRuntimeDraft((current) => ({
+                                            ...current,
+                                            realtimeModel: event.target.value
+                                        }))}
+                                        className={fieldClass}
+                                    >
+                                        {modelOptions.map((option) => (
+                                            <option key={option.value} value={option.value}>
+                                                {option.label}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+                                <label className="grid gap-1">
+                                    <span className="font-medium text-slate-700">Realtime 2 推論設定</span>
+                                    <select
+                                        value={runtimeDraft.realtimeReasoningEffort}
+                                        onChange={(event) => setRuntimeDraft((current) => ({
+                                            ...current,
+                                            realtimeReasoningEffort: event.target.value
+                                        }))}
+                                        className={fieldClass}
+                                        disabled={runtimeDraft.realtimeModel !== 'gpt-realtime-2'}
+                                    >
+                                        {reasoningOptions.map((option) => (
+                                            <option key={option} value={option}>{option}</option>
+                                        ))}
+                                    </select>
+                                </label>
+                                <div className="grid gap-1 text-xs text-slate-500">
+                                    <span>保存後、次回以降の新しい通話から反映されます。進行中の通話は起動時のモデルを維持します。</span>
+                                    {runtimeConfig?.runtimeSettings?.updatedAt && (
+                                        <span>最終更新: {formatDate(runtimeConfig.runtimeSettings.updatedAt)} / {runtimeConfig.runtimeSettings.updatedBy || '-'}</span>
+                                    )}
+                                </div>
+                                {settingsError && <p className="text-sm text-red-700" role="alert">{settingsError}</p>}
+                                {settingsSaveStatus === 'ready' && <p className="text-sm text-emerald-700" role="status">モデル設定を保存しました</p>}
+                                <button
+                                    type="submit"
+                                    className="rounded bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700 focus:outline-none focus:ring-2 focus:ring-slate-400 disabled:opacity-60"
+                                    disabled={settingsSaveStatus === 'loading'}
+                                >
+                                    {settingsSaveStatus === 'loading' ? '保存中' : 'モデル設定を保存'}
+                                </button>
+                            </form>
                             <div className="mt-4 grid gap-3 text-sm">
-                                <div className={settingRowClass}><span className="text-slate-500">Realtime</span><span className={settingValueClass}>{runtimeConfig?.models?.realtime || '-'}</span></div>
+                                <div className={settingRowClass}><span className="text-slate-500">現在のRealtime</span><span className={settingValueClass}>{runtimeConfig?.models?.realtime || '-'}</span></div>
                                 <div className={settingRowClass}><span className="text-slate-500">音声</span><span className={settingValueClass}>{runtimeConfig?.voice || '-'}</span></div>
                                 <div className={settingRowClass}><span className="text-slate-500">VAD</span><span className={settingValueClass}>{runtimeConfig?.vad?.type || '-'}</span></div>
                                 <div className={settingRowClass}><span className="text-slate-500">Firestore</span><span className={settingValueClass}>{runtimeConfig ? (runtimeConfig.storage?.firestoreEnabled ? 'enabled' : 'disabled') : '-'}</span></div>
