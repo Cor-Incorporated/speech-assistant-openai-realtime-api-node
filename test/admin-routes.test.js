@@ -37,6 +37,34 @@ class FakeStore {
     }
 }
 
+class FakeSettingsStore {
+    constructor(settings = {}) {
+        this.settings = { ...settings };
+    }
+
+    async get() {
+        return { ...this.settings };
+    }
+
+    async update(patch, { actor = 'admin', updatedAt = '2026-05-11T00:00:00.000Z' } = {}) {
+        this.settings = {
+            ...this.settings,
+            ...patch,
+            updatedAt,
+            updatedBy: actor
+        };
+        return { ...this.settings };
+    }
+
+    health() {
+        return {
+            runtimeSettings: {
+                firestoreEnabled: false
+            }
+        };
+    }
+}
+
 const sampleRecord = {
     callSid: 'call-1',
     from: '+819012345678',
@@ -44,6 +72,7 @@ const sampleRecord = {
     customerPhoneNumber: '09099998888',
     startedAt: '2026-05-10T10:00:00.000Z',
     status: 'completed',
+    disconnectReason: 'twilio_ws_close_1005',
     summary: '予約相談 090-1234-5678',
     callbackRequired: true,
     accountSid: 'ACinternal',
@@ -115,25 +144,29 @@ const makeFirestore = ({ records = [], listError = null } = {}) => {
 
 const buildApp = async (options = {}) => {
     const app = Fastify();
+    const settingsStore = options.settingsStore || new FakeSettingsStore();
+    const config = options.config || (async ({ runtimeSettings } = {}) => getRuntimeConfig({
+        env: {
+            REALTIME_MODEL: 'gpt-realtime-test',
+            TRANSCRIPTION_MODEL: 'gpt-transcribe-test',
+            EXTRACTION_MODEL: 'gpt-extract-test',
+            VOICE: 'marin',
+            VAD_TYPE: 'server_vad',
+            LOG_TRANSCRIPTS: 'false',
+            LOG_REALTIME_EVENTS: 'true',
+            LOG_OPENAI_RESPONSES: 'false',
+            CALL_LOG_FIRESTORE_ENABLED: 'true',
+            CALL_LOG_SHEETS_ENABLED: 'false',
+            SYSTEM_MESSAGE: 'private prompt body',
+            FIRST_MESSAGE: 'こんにちは'
+        },
+        runtimeSettings
+    }));
     await app.register(registerAdminRoutes, {
         auth: createAdminBasicAuth({ user: 'admin', password: 'secret' }),
         store: new FakeStore([sampleRecord]),
-        config: getRuntimeConfig({
-            env: {
-                REALTIME_MODEL: 'gpt-realtime-test',
-                TRANSCRIPTION_MODEL: 'gpt-transcribe-test',
-                EXTRACTION_MODEL: 'gpt-extract-test',
-                VOICE: 'marin',
-                VAD_TYPE: 'server_vad',
-                LOG_TRANSCRIPTS: 'false',
-                LOG_REALTIME_EVENTS: 'true',
-                LOG_OPENAI_RESPONSES: 'false',
-                CALL_LOG_FIRESTORE_ENABLED: 'true',
-                CALL_LOG_SHEETS_ENABLED: 'false',
-                SYSTEM_MESSAGE: 'private prompt body',
-                FIRST_MESSAGE: 'こんにちは'
-            }
-        }),
+        settingsStore,
+        config,
         auditLog: () => {},
         ...options
     });
@@ -233,6 +266,7 @@ test('call log detail is protected and redacts phone PII in transcript text', as
     assert.equal(response.statusCode, 200);
     const body = response.json();
     assert.equal(body.callSid, 'call-1');
+    assert.equal(body.isSmokeTest, false);
     assert.match(body.transcript, /Phone \*\*\*\*5678 and \+\*\*\*\*2222/);
     assert.equal(body.turns[0].text, 'hello from ****2222');
     assert.equal(body.from, undefined);
@@ -242,6 +276,7 @@ test('call log detail is protected and redacts phone PII in transcript text', as
     assert.equal(body.internalOperatorNote, undefined);
     assert.equal(body.fromDisplay, '+****5678');
     assert.equal(body.customerPhoneDisplay, '****8888');
+    assert.equal(body.disconnectReasonLabel, 'Twilio Media Streamsが理由コードなしで切断しました');
     assert.doesNotMatch(response.body, /090-1234-5678/);
     assert.doesNotMatch(response.body, /\+819011112222/);
     assert.doesNotMatch(response.body, /080-1111-2222/);
@@ -319,7 +354,8 @@ test('empty Firestore collection returns an empty admin API payload', async () =
         total: 0,
         callbackRequired: 0,
         inProgress: 0,
-        completed: 0
+        completed: 0,
+        needsReview: 0
     });
 });
 
@@ -351,7 +387,7 @@ test('Firestore read failures return a controlled unavailable response', async (
 
 test('runtime config response excludes raw secret values', async () => {
     const app = await buildApp({
-        config: getRuntimeConfig({
+        config: ({ runtimeSettings } = {}) => getRuntimeConfig({
             env: {
                 OPENAI_API_KEY: 'sk-secret-value',
                 TWILIO_AUTH_TOKEN: 'twilio-secret-value',
@@ -369,7 +405,8 @@ test('runtime config response excludes raw secret values', async () => {
                 CALL_LOG_SHEETS_ENABLED: 'true',
                 SYSTEM_MESSAGE: 'sensitive prompt text',
                 FIRST_MESSAGE: 'hello 090-1234-5678'
-            }
+            },
+            runtimeSettings
         })
     });
 
@@ -381,7 +418,9 @@ test('runtime config response excludes raw secret values', async () => {
 
     assert.equal(response.statusCode, 200);
     const body = response.json();
-    assert.equal(body.models.realtime, 'gpt-realtime-test');
+    assert.equal(body.models.realtime, 'gpt-realtime-2');
+    assert.equal(body.models.realtimeReasoningEffort, 'low');
+    assert.equal(body.models.realtimeOptions.some((option) => option.value === 'gpt-realtime-1.5'), true);
     assert.equal(body.voice, 'marin');
     assert.equal(body.vad.threshold, 0.7);
     assert.equal(body.logging.transcripts, true);
@@ -398,4 +437,55 @@ test('runtime config response excludes raw secret values', async () => {
     assert.doesNotMatch(response.body, /secret\.example/);
     assert.doesNotMatch(response.body, /sensitive prompt text/);
     assert.doesNotMatch(response.body, /090-1234-5678/);
+});
+
+test('runtime config patch persists selected realtime model', async () => {
+    const settingsStore = new FakeSettingsStore();
+    const auditEvents = [];
+    const app = await buildApp({
+        settingsStore,
+        auditLog: (action, details) => auditEvents.push({ action, details })
+    });
+
+    const response = await app.inject({
+        method: 'PATCH',
+        url: '/api/admin/runtime-config',
+        headers: {
+            ...authHeader(),
+            'content-type': 'application/json'
+        },
+        payload: {
+            realtimeModel: 'gpt-realtime-1.5',
+            realtimeReasoningEffort: 'low'
+        }
+    });
+
+    assert.equal(response.statusCode, 200);
+    const body = response.json();
+    assert.equal(body.models.realtime, 'gpt-realtime-1.5');
+    assert.equal(body.runtimeSettings.source, 'store');
+
+    const stored = await settingsStore.get();
+    assert.equal(stored.realtimeModel, 'gpt-realtime-1.5');
+    assert.equal(auditEvents[0].action, 'admin.runtime_config.update');
+    assert.deepEqual(auditEvents[0].details.metadata.keys, ['realtimeModel', 'realtimeReasoningEffort']);
+});
+
+test('runtime config patch rejects unsupported realtime model', async () => {
+    const app = await buildApp();
+
+    const response = await app.inject({
+        method: 'PATCH',
+        url: '/api/admin/runtime-config',
+        headers: {
+            ...authHeader(),
+            'content-type': 'application/json'
+        },
+        payload: {
+            realtimeModel: 'gpt-fake'
+        }
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.equal(response.json().error, 'invalid_runtime_config');
 });

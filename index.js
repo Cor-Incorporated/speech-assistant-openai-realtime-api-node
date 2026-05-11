@@ -10,6 +10,11 @@ import { fileURLToPath } from 'node:url';
 import { createAdminBasicAuth, registerAdminRoutes } from './lib/admin-routes.js';
 import { buildCallLogRecord, CallLogSinks } from './lib/call-log-sinks.js';
 import { CallLogStore } from './lib/call-log-store.js';
+import {
+    resolveRealtimeSettings,
+    shouldSetRealtimeReasoning
+} from './lib/realtime-models.js';
+import { RuntimeSettingsStore } from './lib/runtime-settings-store.js';
 import { getRuntimeConfig } from './lib/runtime-config.js';
 import {
     auditLog,
@@ -111,7 +116,6 @@ const SHOULD_LOG_REALTIME_EVENTS = LOG_REALTIME_EVENTS === 'true';
 const SHOULD_RUN_EXTRACTION = EXTRACTION_ENABLED === 'true';
 const SHOULD_LOG_OPENAI_RESPONSES = LOG_OPENAI_RESPONSES === 'true';
 const SHOULD_VALIDATE_TWILIO_SIGNATURE = shouldValidateTwilioSignature(TWILIO_SIGNATURE_VALIDATION_ENABLED);
-const SHOULD_SET_REALTIME_REASONING = REALTIME_MODEL.startsWith('gpt-realtime-2');
 const callLogSinks = new CallLogSinks({
     firestoreEnabled: CALL_LOG_FIRESTORE_ENABLED,
     firestoreDatabaseId: CALL_LOG_FIRESTORE_DATABASE_ID,
@@ -127,7 +131,22 @@ const callLogStore = new CallLogStore({
     firestoreCollection: CALL_LOG_FIRESTORE_COLLECTION,
     googleProjectId: GOOGLE_CLOUD_PROJECT
 });
+const runtimeSettingsStore = new RuntimeSettingsStore({
+    firestoreEnabled: CALL_LOG_FIRESTORE_ENABLED,
+    firestoreDatabaseId: CALL_LOG_FIRESTORE_DATABASE_ID,
+    googleProjectId: GOOGLE_CLOUD_PROJECT
+});
 const adminAuth = createAdminBasicAuth();
+
+const REALTIME_ENV = {
+    REALTIME_MODEL,
+    REALTIME_REASONING_EFFORT
+};
+
+const getEffectiveRealtimeSettings = async (runtimeSettings) => resolveRealtimeSettings({
+    env: REALTIME_ENV,
+    runtimeSettings: runtimeSettings || await runtimeSettingsStore.get()
+});
 
 const requireAdminAppAuth = async (request, reply) => {
     const result = await adminAuth.authenticate(request);
@@ -155,9 +174,11 @@ fastify.addHook('onRequest', async (request, reply) => {
 
 fastify.register(registerAdminRoutes, {
     store: callLogStore,
+    settingsStore: runtimeSettingsStore,
     auth: adminAuth,
-    config: () => getRuntimeConfig({
-        systemMessage: RESOLVED_SYSTEM_MESSAGE
+    config: async ({ runtimeSettings } = {}) => getRuntimeConfig({
+        systemMessage: RESOLVED_SYSTEM_MESSAGE,
+        runtimeSettings: runtimeSettings || await runtimeSettingsStore.get()
     }),
     auditLog
 });
@@ -220,10 +241,13 @@ const buildTurnDetectionConfig = () => {
     };
 };
 
-const buildRealtimeSessionConfig = () => {
+const buildRealtimeSessionConfig = ({
+    realtimeModel = REALTIME_MODEL,
+    realtimeReasoningEffort = REALTIME_REASONING_EFFORT
+} = {}) => {
     const session = {
         type: 'realtime',
-        model: REALTIME_MODEL,
+        model: realtimeModel,
         instructions: RESOLVED_SYSTEM_MESSAGE,
         audio: {
             input: {
@@ -241,9 +265,9 @@ const buildRealtimeSessionConfig = () => {
         }
     };
 
-    if (SHOULD_SET_REALTIME_REASONING) {
+    if (shouldSetRealtimeReasoning(realtimeModel)) {
         session.reasoning = {
-            effort: REALTIME_REASONING_EFFORT
+            effort: realtimeReasoningEffort
         };
     }
 
@@ -345,8 +369,15 @@ fastify.all('/incoming-call', async (request, reply) => {
 
 // メディアストリーム用のWebSocketルート
 fastify.register(async (fastify) => {
-    fastify.get('/media-stream', { websocket: true }, (connection, req) => {
+    fastify.get('/media-stream', { websocket: true }, async (connection, req) => {
         console.log('Media stream connected');
+        let realtimeSettings;
+        try {
+            realtimeSettings = await getEffectiveRealtimeSettings();
+        } catch (error) {
+            console.error('Failed to read runtime model settings, falling back to env:', error.message);
+            realtimeSettings = await getEffectiveRealtimeSettings({});
+        }
 
         const sessionId = req.headers['x-twilio-call-sid'] || `session_${Date.now()}`;
         let session = sessions.get(sessionId) || {
@@ -360,7 +391,7 @@ fastify.register(async (fastify) => {
         };
         sessions.set(sessionId, session);
 
-        const openAiWs = new WebSocket(`wss://api.openai.com/v1/realtime?model=${encodeURIComponent(REALTIME_MODEL)}`, {
+        const openAiWs = new WebSocket(`wss://api.openai.com/v1/realtime?model=${encodeURIComponent(realtimeSettings.realtimeModel)}`, {
             headers: {
                 Authorization: `Bearer ${OPENAI_API_KEY}`
             }
@@ -369,10 +400,10 @@ fastify.register(async (fastify) => {
         const sendSessionUpdate = () => {
             const sessionUpdate = {
                 type: 'session.update',
-                session: buildRealtimeSessionConfig()
+                session: buildRealtimeSessionConfig(realtimeSettings)
             };
 
-            console.log(`Sending Realtime session update for model ${REALTIME_MODEL}`);
+            console.log(`Sending Realtime session update for model ${realtimeSettings.realtimeModel}`);
             openAiWs.send(JSON.stringify(sessionUpdate));
         };
 
