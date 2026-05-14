@@ -14,6 +14,22 @@ import {
     resolveRealtimeSettings,
     shouldSetRealtimeReasoning
 } from './lib/realtime-models.js';
+import {
+    buildRealtimeInputGateConfig,
+    evaluateRealtimeInputTranscript
+} from './lib/realtime-input-gate.js';
+import {
+    appendCallbackPhoneValidationInstructions,
+    buildValidateCallbackPhoneTool
+} from './lib/phone-number-validation.js';
+import {
+    appendCallEndInstructions,
+    buildCallEndConfig,
+    buildFinishReceptionTool,
+    isTerminalAgentMessage,
+    updateTwilioCallStatus
+} from './lib/realtime-call-end.js';
+import { handleRealtimeToolCalls } from './lib/realtime-tool-flow.js';
 import { RuntimeSettingsStore } from './lib/runtime-settings-store.js';
 import { getRuntimeConfig } from './lib/runtime-config.js';
 import {
@@ -38,7 +54,7 @@ const DEFAULT_SYSTEM_MESSAGE = [
     '一度に複数の質問をせず、用件、名前、折り返し電話番号、希望日時などを一つずつ確認してください。',
     '氏名は聞こえた読みをそのままカタカナで確認してください。一般的な漢字名へ勝手に変換しないでください。',
     '氏名が少しでも不確かな場合は「お名前の読みをカタカナで確認させてください」と聞き返してください。',
-    '会話を勝手に終了せず、必要に応じて担当者へ引き継ぐ旨を伝えてください。',
+    '会話を勝手に終了せず、必要に応じて担当者へ引き継ぐ旨を伝え、受付完了時は終話ルールに従って案内してください。',
     'まだ社名や業務ナレッジが未設定のため、断定できない内容は「確認して折り返します」と案内してください。'
 ].join('\n');
 
@@ -59,6 +75,12 @@ const {
     VAD_PREFIX_PADDING_MS = '300',
     VAD_SILENCE_DURATION_MS = '700',
     VAD_EAGERNESS = 'low',
+    VAD_CREATE_RESPONSE = 'true',
+    VAD_INTERRUPT_RESPONSE = 'true',
+    REALTIME_INPUT_GATE_ENABLED = 'true',
+    REALTIME_INPUT_GATE_MIN_JAPANESE_CHARS = '2',
+    REALTIME_INPUT_GATE_MIN_DIGITS = '4',
+    REALTIME_INPUT_GATE_ALLOWED_TERMS = '',
     LOG_TRANSCRIPTS = 'false',
     LOG_REALTIME_EVENTS = 'false',
     LOG_OPENAI_RESPONSES = 'false',
@@ -70,11 +92,17 @@ const {
     CALL_LOG_FIRESTORE_DATABASE_ID = '',
     CALL_LOG_FIRESTORE_COLLECTION = 'callLogs',
     CALL_LOG_SHEETS_ENABLED = 'false',
+    CALL_LOG_SUPPRESS_SMOKE_LOGS = 'true',
     GOOGLE_SHEETS_SPREADSHEET_ID = '',
     GOOGLE_SHEETS_RANGE = '',
     SYSTEM_MESSAGE = DEFAULT_SYSTEM_MESSAGE,
     SYSTEM_MESSAGE_FILE = '',
-    FIRST_MESSAGE = 'お電話ありがとうございます。AI受付です。どのようなご用件でしょうか。'
+    FIRST_MESSAGE = 'お電話ありがとうございます。AI受付です。どのようなご用件でしょうか。',
+    CALL_END_WORKFLOW_ENABLED = 'true',
+    CALL_END_HANGUP_ENABLED = 'true',
+    CALL_END_FINAL_PHRASE = '',
+    CALL_END_MARK_TIMEOUT_MS = '5000',
+    CALL_END_GRACE_MS = '800'
 } = process.env;
 
 const resolveSystemMessage = () => {
@@ -97,8 +125,6 @@ const resolveSystemMessage = () => {
     }
 };
 
-const RESOLVED_SYSTEM_MESSAGE = resolveSystemMessage();
-
 if (!OPENAI_API_KEY) {
     console.error('OpenAI APIキーが見つかりません。.envファイルに設定してください。');
     process.exit(1);
@@ -116,6 +142,28 @@ const SHOULD_LOG_REALTIME_EVENTS = LOG_REALTIME_EVENTS === 'true';
 const SHOULD_RUN_EXTRACTION = EXTRACTION_ENABLED === 'true';
 const SHOULD_LOG_OPENAI_RESPONSES = LOG_OPENAI_RESPONSES === 'true';
 const SHOULD_VALIDATE_TWILIO_SIGNATURE = shouldValidateTwilioSignature(TWILIO_SIGNATURE_VALIDATION_ENABLED);
+const CALL_END_CONFIG = buildCallEndConfig({
+    CALL_END_WORKFLOW_ENABLED,
+    CALL_END_HANGUP_ENABLED,
+    CALL_END_FINAL_PHRASE,
+    CALL_END_MARK_TIMEOUT_MS,
+    CALL_END_GRACE_MS
+});
+const RESOLVED_SYSTEM_MESSAGE = appendCallEndInstructions(
+    appendCallbackPhoneValidationInstructions(resolveSystemMessage()),
+    CALL_END_CONFIG
+);
+const FINISH_RECEPTION_TOOL = buildFinishReceptionTool(CALL_END_CONFIG);
+const VALIDATE_CALLBACK_PHONE_TOOL = buildValidateCallbackPhoneTool();
+const REALTIME_INPUT_GATE_CONFIG = buildRealtimeInputGateConfig({
+    REALTIME_INPUT_GATE_ENABLED,
+    REALTIME_INPUT_GATE_MIN_JAPANESE_CHARS,
+    REALTIME_INPUT_GATE_MIN_DIGITS,
+    REALTIME_INPUT_GATE_ALLOWED_TERMS
+});
+const SHOULD_GATE_REALTIME_INPUT = REALTIME_INPUT_GATE_CONFIG.enabled;
+const SHOULD_CREATE_RESPONSE_FROM_VAD = !SHOULD_GATE_REALTIME_INPUT && VAD_CREATE_RESPONSE === 'true';
+const SHOULD_INTERRUPT_RESPONSE = VAD_INTERRUPT_RESPONSE === 'true';
 const callLogSinks = new CallLogSinks({
     firestoreEnabled: CALL_LOG_FIRESTORE_ENABLED,
     firestoreDatabaseId: CALL_LOG_FIRESTORE_DATABASE_ID,
@@ -123,7 +171,8 @@ const callLogSinks = new CallLogSinks({
     sheetsEnabled: CALL_LOG_SHEETS_ENABLED,
     spreadsheetId: GOOGLE_SHEETS_SPREADSHEET_ID,
     sheetsRange: GOOGLE_SHEETS_RANGE,
-    googleProjectId: GOOGLE_CLOUD_PROJECT
+    googleProjectId: GOOGLE_CLOUD_PROJECT,
+    suppressSmokeLogs: CALL_LOG_SUPPRESS_SMOKE_LOGS
 });
 const callLogStore = new CallLogStore({
     firestoreEnabled: CALL_LOG_FIRESTORE_ENABLED,
@@ -226,8 +275,8 @@ const buildTurnDetectionConfig = () => {
         return {
             type: VAD_TYPE,
             eagerness: VAD_EAGERNESS,
-            create_response: true,
-            interrupt_response: true
+            create_response: SHOULD_CREATE_RESPONSE_FROM_VAD,
+            interrupt_response: SHOULD_INTERRUPT_RESPONSE
         };
     }
 
@@ -236,8 +285,8 @@ const buildTurnDetectionConfig = () => {
         threshold: Number(VAD_THRESHOLD),
         prefix_padding_ms: Number(VAD_PREFIX_PADDING_MS),
         silence_duration_ms: Number(VAD_SILENCE_DURATION_MS),
-        create_response: true,
-        interrupt_response: true
+        create_response: SHOULD_CREATE_RESPONSE_FROM_VAD,
+        interrupt_response: SHOULD_INTERRUPT_RESPONSE
     };
 };
 
@@ -265,6 +314,14 @@ const buildRealtimeSessionConfig = ({
         }
     };
 
+    session.tools = [
+        VALIDATE_CALLBACK_PHONE_TOOL,
+        ...(FINISH_RECEPTION_TOOL ? [FINISH_RECEPTION_TOOL] : [])
+    ];
+    if (session.tools.length > 0) {
+        session.tool_choice = 'auto';
+    }
+
     if (shouldSetRealtimeReasoning(realtimeModel)) {
         session.reasoning = {
             effort: realtimeReasoningEffort
@@ -287,9 +344,13 @@ const LOG_EVENT_TYPES = [
     'input_audio_buffer.speech_started',
     'session.created',
     'session.updated',
+    'response.created',
     'response.output_text.done',
     'response.output_audio_transcript.done',
-    'conversation.item.input_audio_transcription.completed'
+    'response.function_call_arguments.done',
+    'conversation.item.input_audio_transcription.completed',
+    'conversation.item.deleted',
+    'error'
 ];
 
 // ルート
@@ -396,6 +457,167 @@ fastify.register(async (fastify) => {
                 Authorization: `Bearer ${OPENAI_API_KEY}`
             }
         });
+        let responseInProgress = false;
+        let responseCreatePending = false;
+        let pendingResponseAfterCurrent = false;
+        let callEndTimer = null;
+        let callEndMarkTimeout = null;
+
+        const requestCallEnd = ({ source, reason }) => {
+            if (!CALL_END_CONFIG.workflowEnabled) return;
+
+            session.callEnd = {
+                ...(session.callEnd || {}),
+                requested: true,
+                source,
+                reason: reason || 'reception_completed',
+                requestedAt: session.callEnd?.requestedAt || new Date().toISOString()
+            };
+        };
+
+        const completeCallAfterFinalAudio = async (trigger) => {
+            if (session.callEnd?.completed) return;
+
+            session.callEnd = {
+                ...(session.callEnd || {}),
+                completed: true,
+                completedAt: new Date().toISOString(),
+                trigger
+            };
+
+            let twilioResult = {
+                ok: false,
+                skipped: true,
+                reason: CALL_END_CONFIG.hangupEnabled ? 'not_attempted' : 'hangup_disabled'
+            };
+
+            if (CALL_END_CONFIG.hangupEnabled) {
+                try {
+                    twilioResult = await updateTwilioCallStatus({
+                        accountSid: session.accountSid,
+                        callSid: session.callSid,
+                        authToken: TWILIO_AUTH_TOKEN
+                    });
+                } catch (error) {
+                    twilioResult = {
+                        ok: false,
+                        skipped: false,
+                        reason: 'twilio_api_exception'
+                    };
+                    console.error(`Failed to complete Twilio call ${session.callSid}: ${error.message}`);
+                }
+            }
+
+            session.callEnd.twilioResult = twilioResult;
+            const callEndSucceeded = twilioResult.ok || (!CALL_END_CONFIG.hangupEnabled && twilioResult.skipped);
+            auditLog('call.end.requested', {
+                actor: 'system',
+                target: session.callSid || sessionId,
+                result: callEndSucceeded ? 'success' : 'failure',
+                metadata: {
+                    trigger,
+                    source: session.callEnd.source,
+                    reason: session.callEnd.reason,
+                    twilioStatusCode: twilioResult.statusCode || '',
+                    twilioSkippedReason: twilioResult.skipped ? twilioResult.reason : ''
+                }
+            });
+
+            if (connection.readyState === WebSocket.OPEN) {
+                connection.close(1000, `call_end_${trigger}`);
+            }
+        };
+
+        const scheduleCallCompletion = (trigger) => {
+            if (!session.callEnd?.requested || session.callEnd?.completed || callEndTimer) return;
+            if (callEndMarkTimeout) clearTimeout(callEndMarkTimeout);
+
+            callEndTimer = setTimeout(() => {
+                callEndTimer = null;
+                completeCallAfterFinalAudio(trigger).catch((error) => {
+                    console.error(`Failed to finish call end workflow: ${error.message}`);
+                });
+            }, CALL_END_CONFIG.graceMs);
+        };
+
+        const sendEndCallMark = (reason) => {
+            if (
+                !CALL_END_CONFIG.workflowEnabled
+                || !session.callEnd?.requested
+                || session.callEnd?.completed
+                || session.callEnd?.markName
+            ) {
+                return;
+            }
+
+            if (!session.streamSid || connection.readyState !== WebSocket.OPEN) {
+                scheduleCallCompletion(`no_mark_${reason}`);
+                return;
+            }
+
+            const markName = `end_call_${Date.now()}`;
+            session.callEnd.markName = markName;
+            session.callEnd.markSentAt = new Date().toISOString();
+            connection.send(JSON.stringify({
+                event: 'mark',
+                streamSid: session.streamSid,
+                mark: { name: markName }
+            }));
+
+            callEndMarkTimeout = setTimeout(() => {
+                callEndMarkTimeout = null;
+                scheduleCallCompletion(`mark_timeout_${reason}`);
+            }, CALL_END_CONFIG.markTimeoutMs);
+        };
+
+        const handleToolCalls = (event) => {
+            const result = handleRealtimeToolCalls({
+                event,
+                state: session,
+                callEndConfig: CALL_END_CONFIG
+            });
+            if (!result.handled) return false;
+
+            for (const output of result.outputs) {
+                openAiWs.send(JSON.stringify(output));
+            }
+            for (const callEndRequest of result.callEndRequests) {
+                requestCallEnd(callEndRequest);
+            }
+            sendRealtimeResponseCreate(result.responseReason);
+            return true;
+        };
+
+        const sendRealtimeResponseCreate = (reason) => {
+            if (openAiWs.readyState !== WebSocket.OPEN) return;
+
+            if (responseInProgress || responseCreatePending) {
+                pendingResponseAfterCurrent = true;
+                if (SHOULD_LOG_REALTIME_EVENTS) {
+                    console.log(`Queued response.create until current response completes (${reason})`);
+                }
+                return;
+            }
+
+            responseCreatePending = true;
+            openAiWs.send(JSON.stringify({ type: 'response.create' }));
+            if (SHOULD_LOG_REALTIME_EVENTS) {
+                console.log(`Sent response.create (${reason})`);
+            }
+        };
+
+        const deleteConversationItem = (itemId, reason) => {
+            if (!itemId || openAiWs.readyState !== WebSocket.OPEN) return;
+
+            openAiWs.send(JSON.stringify({
+                type: 'conversation.item.delete',
+                item_id: itemId
+            }));
+
+            if (SHOULD_LOG_REALTIME_EVENTS) {
+                console.log(`Deleted ignored conversation item ${itemId} (${reason})`);
+            }
+        };
 
         const sendSessionUpdate = () => {
             const sessionUpdate = {
@@ -426,7 +648,7 @@ fastify.register(async (fastify) => {
                 };
                 openAiWs.send(JSON.stringify(queuedFirstMessage));
                 // AIアシスタントに応答を促す
-                openAiWs.send(JSON.stringify({ type: 'response.create' }));
+                sendRealtimeResponseCreate('first_message');
             }, 250);
         });
 
@@ -441,19 +663,64 @@ fastify.register(async (fastify) => {
 
                 // ユーザーの音声認識結果を処理
                 if (response.type === 'conversation.item.input_audio_transcription.completed') {
-                    const userMessage = response.transcript.trim();
-                    appendTurn(session, 'user', userMessage);
-                    if (SHOULD_LOG_TRANSCRIPTS && userMessage) console.log(`User (${sessionId}): ${userMessage}`);
+                    const userMessage = String(response.transcript || '').trim();
+                    const gateResult = evaluateRealtimeInputTranscript(userMessage, REALTIME_INPUT_GATE_CONFIG);
+
+                    if (!gateResult.accepted) {
+                        deleteConversationItem(response.item_id, gateResult.reason);
+                        if (SHOULD_LOG_REALTIME_EVENTS) {
+                            console.log(`Ignored input transcript (${sessionId}): ${gateResult.reason}`);
+                        }
+                        return;
+                    }
+
+                    appendTurn(session, 'user', gateResult.normalized);
+                    if (SHOULD_LOG_TRANSCRIPTS && gateResult.normalized) {
+                        console.log(`User (${sessionId}): ${gateResult.normalized}`);
+                    }
+                    if (SHOULD_GATE_REALTIME_INPUT) {
+                        sendRealtimeResponseCreate(`accepted_transcript:${gateResult.reason}`);
+                    }
                 }
 
                 if (response.type === 'response.output_audio_transcript.done') {
                     const agentMessage = response.transcript || '';
                     appendTurn(session, 'agent', agentMessage);
                     if (SHOULD_LOG_TRANSCRIPTS && agentMessage) console.log(`Agent (${sessionId}): ${agentMessage}`);
+                    if (isTerminalAgentMessage(agentMessage, CALL_END_CONFIG)) {
+                        requestCallEnd({
+                            source: 'terminal_phrase',
+                            reason: 'assistant_final_phrase'
+                        });
+                    }
                 }
 
                 if (response.type === 'session.updated') {
                     console.log('Realtime session updated successfully');
+                }
+
+                if (response.type === 'response.created') {
+                    responseInProgress = true;
+                    responseCreatePending = false;
+                }
+
+                if (response.type === 'response.done') {
+                    responseInProgress = false;
+                    responseCreatePending = false;
+                    if (handleToolCalls(response)) {
+                        return;
+                    }
+                    if (pendingResponseAfterCurrent) {
+                        pendingResponseAfterCurrent = false;
+                        sendRealtimeResponseCreate('queued_after_response_done');
+                        return;
+                    }
+                    sendEndCallMark('response_done');
+                }
+
+                if (response.type === 'error') {
+                    responseCreatePending = false;
+                    console.error('Realtime API error:', response.error?.message || 'Unknown realtime error');
                 }
 
                 if ((response.type === 'response.output_audio.delta' || response.type === 'response.audio.delta') && response.delta) {
@@ -503,6 +770,11 @@ fastify.register(async (fastify) => {
                         });
                         callLogSinks.recordStarted(session);
                         break;
+                    case 'mark':
+                        if (data.mark?.name && data.mark.name === session.callEnd?.markName) {
+                            scheduleCallCompletion('twilio_mark');
+                        }
+                        break;
                     default:
                         console.log('Received non-media event:', data.event);
                         break;
@@ -514,6 +786,8 @@ fastify.register(async (fastify) => {
 
         // 接続が閉じられたときの処理
         connection.on('close', async (code, reason) => {
+            if (callEndTimer) clearTimeout(callEndTimer);
+            if (callEndMarkTimeout) clearTimeout(callEndMarkTimeout);
             if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
             session.endedAt = new Date();
             session.status = 'completed';
@@ -524,7 +798,9 @@ fastify.register(async (fastify) => {
                 console.log(session.transcript);
             }
 
-            const extraction = await processTranscriptAndSend(session.transcript, session.callSid || sessionId);
+            const extraction = callLogSinks.shouldSkipSmokeLog(session)
+                ? null
+                : await processTranscriptAndSend(session.transcript, session.callSid || sessionId);
             const record = buildCallLogRecord(session, extraction);
             await callLogSinks.recordCompleted(record);
             auditLog('call.completed', {
