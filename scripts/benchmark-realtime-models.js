@@ -3,6 +3,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import WebSocket from 'ws';
+import { buildRealtimeInputGateConfig } from '../lib/realtime-input-gate.js';
+import {
+    appendCallbackPhoneValidationInstructions,
+    buildValidateCallbackPhoneTool
+} from '../lib/phone-number-validation.js';
+import {
+    appendCallEndInstructions,
+    buildCallEndConfig,
+    buildFinishReceptionTool
+} from '../lib/realtime-call-end.js';
 
 dotenv.config();
 
@@ -21,6 +31,17 @@ const {
     VAD_PREFIX_PADDING_MS = '300',
     VAD_SILENCE_DURATION_MS = '700',
     VAD_EAGERNESS = 'low',
+    VAD_CREATE_RESPONSE = 'true',
+    VAD_INTERRUPT_RESPONSE = 'true',
+    REALTIME_INPUT_GATE_ENABLED = 'true',
+    REALTIME_INPUT_GATE_MIN_JAPANESE_CHARS = '2',
+    REALTIME_INPUT_GATE_MIN_DIGITS = '4',
+    REALTIME_INPUT_GATE_ALLOWED_TERMS = '',
+    CALL_END_WORKFLOW_ENABLED = 'true',
+    CALL_END_HANGUP_ENABLED = 'true',
+    CALL_END_FINAL_PHRASE = '',
+    CALL_END_MARK_TIMEOUT_MS = '5000',
+    CALL_END_GRACE_MS = '800',
     REALTIME_BENCHMARK_WRITE_LOG = 'true'
 } = process.env;
 
@@ -64,13 +85,31 @@ const markdownCell = (value) => redactSecrets(value)
     .replaceAll('\n', ' ')
     .trim();
 
+const inputGateConfig = buildRealtimeInputGateConfig({
+    REALTIME_INPUT_GATE_ENABLED,
+    REALTIME_INPUT_GATE_MIN_JAPANESE_CHARS,
+    REALTIME_INPUT_GATE_MIN_DIGITS,
+    REALTIME_INPUT_GATE_ALLOWED_TERMS
+});
+const shouldCreateResponseFromVad = !inputGateConfig.enabled && VAD_CREATE_RESPONSE === 'true';
+const shouldInterruptResponse = VAD_INTERRUPT_RESPONSE === 'true';
+const callEndConfig = buildCallEndConfig({
+    CALL_END_WORKFLOW_ENABLED,
+    CALL_END_HANGUP_ENABLED,
+    CALL_END_FINAL_PHRASE,
+    CALL_END_MARK_TIMEOUT_MS,
+    CALL_END_GRACE_MS
+});
+const finishReceptionTool = buildFinishReceptionTool(callEndConfig);
+const validateCallbackPhoneTool = buildValidateCallbackPhoneTool();
+
 const buildTurnDetectionConfig = () => {
     if (VAD_TYPE === 'semantic_vad') {
         return {
             type: VAD_TYPE,
             eagerness: VAD_EAGERNESS,
-            create_response: true,
-            interrupt_response: true
+            create_response: shouldCreateResponseFromVad,
+            interrupt_response: shouldInterruptResponse
         };
     }
 
@@ -79,8 +118,8 @@ const buildTurnDetectionConfig = () => {
         threshold: Number(VAD_THRESHOLD),
         prefix_padding_ms: Number(VAD_PREFIX_PADDING_MS),
         silence_duration_ms: Number(VAD_SILENCE_DURATION_MS),
-        create_response: true,
-        interrupt_response: true
+        create_response: shouldCreateResponseFromVad,
+        interrupt_response: shouldInterruptResponse
     };
 };
 
@@ -90,7 +129,10 @@ const buildSessionUpdate = (model) => {
     const session = {
         type: 'realtime',
         model,
-        instructions: 'Realtime connectivity benchmark. Keep responses brief.',
+        instructions: appendCallEndInstructions(
+            appendCallbackPhoneValidationInstructions('Realtime connectivity benchmark. Keep responses brief.'),
+            callEndConfig
+        ),
         audio: {
             input: {
                 format: { type: AUDIO_FORMAT },
@@ -104,6 +146,14 @@ const buildSessionUpdate = (model) => {
             }
         }
     };
+
+    session.tools = [
+        validateCallbackPhoneTool,
+        ...(finishReceptionTool ? [finishReceptionTool] : [])
+    ];
+    if (session.tools.length > 0) {
+        session.tool_choice = 'auto';
+    }
 
     if (isRealtime2Model(model)) {
         session.reasoning = { effort: REALTIME_REASONING_EFFORT };
