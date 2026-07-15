@@ -39,6 +39,7 @@ import {
     summarizeHandoffWhisper,
     shouldAutoHandoffGeneral,
     isNonHandoffBusinessCall,
+    isHandoffCallConnected,
     updateTwilioCallTwiml
 } from './lib/handoff.js';
 import { NotificationOutbox } from './lib/notification-outbox.js';
@@ -647,15 +648,16 @@ fastify.post('/handoff/dial-status', async (request, reply) => {
     if (!HANDOFF_CONFIG.enabled) return reply.code(404).send({ error: 'handoff_disabled' });
     if (!isValidTwilioWebhook({ request })) return reply.code(403).send('Forbidden');
 
-    const connected = request.body?.DialCallStatus === 'completed';
+    let context = null;
+    try {
+        context = await handoffContextStore.get(callSid);
+    } catch (error) {
+        console.error('Failed to load handoff dial context:', error.message);
+    }
+    const whisperRejected = context?.status === 'whisper_rejected';
+    const connected = isHandoffCallConnected(request.body?.DialCallStatus, context);
     let fallbackTwiml = '';
     if (!connected) {
-        let context = null;
-        try {
-            context = await handoffContextStore.get(callSid);
-        } catch (error) {
-            console.error('Failed to load handoff fallback context:', error.message);
-        }
         const text = [
             '担当者への転送が成立しませんでした。',
             context?.summary ? `受付内容: ${context.summary}` : '受付内容は管理画面で確認してください。',
@@ -694,7 +696,11 @@ fastify.post('/handoff/dial-status', async (request, reply) => {
     auditLog('handoff.dial.completed', {
         actor: 'twilio',
         target: callSid,
-        metadata: { dialCallStatus: request.body?.DialCallStatus || '', connected }
+        metadata: {
+            dialCallStatus: request.body?.DialCallStatus || '',
+            connected,
+            whisperRejected
+        }
     });
     return sendTwiml(reply, connected ? buildDialStatusTwiml({ connected }) : fallbackTwiml);
 });
