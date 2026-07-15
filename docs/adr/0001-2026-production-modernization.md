@@ -72,6 +72,16 @@ Reactオペレーターコンソール
 - Conference制御によりTwilio実装は複雑になるが、引き継ぎや将来拡張が安定する。
 - 管理画面とRAGにより、認証、永続化、監査、個人情報保護が必須になる。
 
+## 関連ADR（2026-07-15追記）
+
+本ADR以降の主要な意思決定は次のADRを参照。
+
+- [ADR-0004: gpt-realtime-2.1 の採用方針](./0004-gpt-realtime-2-1-adoption.md)
+- [ADR-0005: GCPプロジェクトを cor-jp-web へ統一移行する](./0005-gcp-project-migration-cor-jp-web.md)
+- [ADR-0006: 人間引き継ぎ第一弾は担当者携帯へのPSTN転送とする](./0006-handoff-phase1-pstn-transfer.md)（Wave 5の実施方式を変更）
+- [ADR-0007: 問い合わせ通知をResendへ統一する（Cloudia連携）](./0007-notification-unification-resend.md)
+- [ADR-0008: 電話応答練習システムの分離とDTMF振り分けゲートウェイ](./0008-practice-system-separation-dtmf-gateway.md)
+
 ## 参考
 
 - OpenAI Realtime model: https://developers.openai.com/api/docs/models/gpt-realtime

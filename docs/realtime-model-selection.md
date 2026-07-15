@@ -2,7 +2,7 @@
 
 ## 結論
 
-日本向け音声AI受付の既定候補は `gpt-realtime-2` とし、受付・予約・問い合わせ振り分けのような通常フローでは `reasoning.effort=low` から開始する。
+日本向け音声AI受付の既定候補は `gpt-realtime-2` とし、受付・予約・問い合わせ振り分けのような通常フローでは `reasoning.effort=low` から開始する。後継の `gpt-realtime-2.1` はベンチマーク実測後に既定へ昇格する予定（[ADR-0004](./adr/0004-gpt-realtime-2-1-adoption.md)、下記「gpt-realtime-2.1について」参照）。
 
 理由は、OpenAI公式情報で `gpt-realtime-2` が Realtime 音声向けの推論モデルとして位置づけられ、`gpt-realtime-1.5` より長いコンテキスト、設定可能な reasoning effort、強い指示追従、複雑な音声エージェントでのより信頼できる tool use を示しているため。
 
@@ -41,6 +41,19 @@
 - 通話が短く、長い会話状態や複雑なtool selectionが不要。
 - `gpt-realtime-2` への移行テストで、実運用に近い受付ケースの成功率、遅延、途中復帰、固有名詞確認が改善しない。
 - `reasoning.effort` 追加やprompt再構成をまだ検証できていない。
+
+## gpt-realtime-2.1について（2026-07-15追記）
+
+`gpt-realtime-2.1` は `gpt-realtime-2` の改良版で、公式モデルページでは英数字認識、無音・ノイズ処理、割り込み時の振る舞いの改善が挙げられている。いずれも電話受付の主要な失敗モード（番号聞き取り・環境音誤反応・顧客の割り込み）に直結する改善である。
+
+- 料金は `gpt-realtime-2` と同額（音声 入力$32／出力$64 per 1Mトークン、テキスト 入力$4／出力$24 per 1Mトークン）。
+- reasoning effort設定・tool useは引き続きサポートされる。
+- 既定モデルへの昇格は、`npm run benchmark:realtime-models` の実測で[ADR-0004](./adr/0004-gpt-realtime-2-1-adoption.md)の判定基準（レイテンシ・日本語entity capture・tool call成功率が `gpt-realtime-2` 同等以上）を満たしてから行う。
+- 実装注意: `lib/realtime-models.js` の `shouldSetRealtimeReasoning` は `startsWith('gpt-realtime-2')` のprefix一致のため、`gpt-realtime-2.1` にも自動的に `reasoning.effort` が送信される。選択肢追加時はテストでこの挙動を固定する。
+
+参照URL:
+
+- https://developers.openai.com/api/docs/models/gpt-realtime-2.1
 
 ## 移行時の注意
 
