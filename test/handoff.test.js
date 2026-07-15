@@ -4,12 +4,15 @@ import {
     appendHandoffInstructions,
     buildHandoffConfig,
     buildTransferToHumanTool,
+    classifyGeneralHandoff,
     findTransferToHumanToolCalls,
     HandoffContextStore,
     isHandoffCallConnected,
     isNonHandoffBusinessCall,
     isSalesBusinessCall,
     isContractRequest,
+    isComplaintCall,
+    isCustomerHarassmentCall,
     resolveHandoffDestination,
     shouldAutoHandoffGeneral,
     shouldAllowHumanHandoff,
@@ -84,7 +87,7 @@ test('handoff summary uses recent turns and caps its length', () => {
 test('handoff auto-detects billing disputes and representative requests', () => {
     assert.equal(shouldAutoHandoffGeneral([
         { role: 'user', text: '以前の取引について、支払った料金が足りなかったので相談したいです。' }
-    ]), true);
+    ]), false);
     assert.equal(shouldAutoHandoffGeneral([
         { role: 'user', text: '代表の方に直接相談したいです。' }
     ]), false);
@@ -96,13 +99,28 @@ test('handoff auto-detects billing disputes and representative requests', () => 
     ]), false);
     assert.equal(shouldAutoHandoffGeneral([
         { role: 'user', text: '私に払った業務委託費が1万円ほど足りなかったので、現状を確認したいです。' }
-    ]), true);
+    ]), false);
     assert.equal(isNonHandoffBusinessCall([
         { role: 'user', text: '私に払った業務委託費が1万円ほど足りなかったので、現状を確認したいです。' }
     ]), false);
     assert.equal(resolveHandoffDestination([
         { role: 'user', text: '私に払った業務委託費が1万円ほど足りなかったので、現状を確認したいです。' }
     ], 'contract'), 'general');
+    assert.equal(isComplaintCall([
+        { role: 'user', text: '私に払った業務委託費が1万円ほど足りなかったので、現状を確認したいです。' }
+    ]), true);
+    assert.equal(classifyGeneralHandoff([
+        { role: 'user', text: '私に払った業務委託費が1万円ほど足りなかったので、現状を確認したいです。' }
+    ]), '');
+    assert.equal(isComplaintCall([
+        { role: 'user', text: '支払いについて説明してほしいです。' }
+    ]), true);
+    assert.equal(isCustomerHarassmentCall([
+        { role: 'user', text: '何度言わせるんですか。ふざけるな。' }
+    ]), true);
+    assert.equal(classifyGeneralHandoff([
+        { role: 'user', text: '何度言わせるんですか。ふざけるな。' }
+    ]), '');
 });
 
 test('handoff policy keeps non-urgent event calls in the call center', () => {
