@@ -6,6 +6,7 @@ import {
     buildTransferToHumanTool,
     findTransferToHumanToolCalls,
     HandoffContextStore,
+    isHandoffCallConnected,
     isNonHandoffBusinessCall,
     isContractRequest,
     shouldAutoHandoffGeneral,
@@ -116,6 +117,12 @@ test('handoff whisper summary is one compact sentence', () => {
     assert.match(summary, /^用件は/);
     assert.doesNotMatch(summary, /。/);
     assert.ok(summary.length <= 180);
+});
+
+test('handoff rejection forces parent Dial fallback even if Twilio reports completed', () => {
+    assert.equal(isHandoffCallConnected('completed', { status: 'whisper_rejected' }), false);
+    assert.equal(isHandoffCallConnected('completed', { status: 'whisper_accepted' }), true);
+    assert.equal(isHandoffCallConnected('no-answer', { status: 'requested' }), false);
 });
 
 test('handoff policy blocks recruiting sales proposals but keeps contract requests eligible', () => {
