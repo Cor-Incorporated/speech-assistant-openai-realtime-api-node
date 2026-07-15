@@ -57,6 +57,7 @@ AIが対応困難と判断した通話を、担当者の携帯電話へ転送す
 | `HANDOFF_NUMBERS` | （空） | `{"contract":"+81...","general":"+81..."}` のJSON。受託案件とその他の人間対応を用途別に1番号へ転送する。旧カンマ区切りも互換維持。**実番号はSecret/環境変数のみで管理し、リポジトリ・docに書かない** |
 | `HANDOFF_DIAL_TIMEOUT_S` | `20` | 呼び出しタイムアウト（秒） |
 | `HANDOFF_WHISPER_ACCEPT_DIGIT` | `1` | 受諾キー |
+| `HANDOFF_WHISPER_REJECT_DIGIT` | `2` | コールセンターへ差し戻すキー |
 | `HANDOFF_CALLER_ID` | （空） | `<Dial callerId>`。通常は自番号（050） |
 
 ## 監査ログ

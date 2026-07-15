@@ -224,3 +224,26 @@ test('Realtime tool flow requires a contact number before closing a business cal
     assert.equal(output.reason, 'business_callback_contact_not_validated');
     assert.deepEqual(result.callEndRequests, []);
 });
+
+test('Realtime tool flow blocks non-urgent general handoff', () => {
+    const result = handleRealtimeToolCalls({
+        event: toolEvent('transfer_to_human', 'handoff_event_1', {
+            reason: 'イベント開催の相談',
+            destination: 'general'
+        }),
+        state: {
+            turns: [{ role: 'user', text: 'エンジニアを集めたイベントを開催したい相談です。' }]
+        },
+        callEndConfig: buildCallEndConfig(),
+        handoffConfig: {
+            enabled: true,
+            numbers: ['+819012345678'],
+            enforceRoutingPolicy: true
+        }
+    });
+    const output = JSON.parse(result.outputs[0].item.output);
+
+    assert.equal(result.handled, true);
+    assert.deepEqual(result.handoffRequests, []);
+    assert.equal(output.reason, 'non_urgent_general_handoff');
+});
