@@ -183,3 +183,26 @@ test('Realtime tool flow emits a handoff request only when enabled with recipien
     assert.equal(output.status, 'starting');
     assert.equal(output.destination, 'contract');
 });
+
+test('Realtime tool flow blocks human transfer for non-handoff business calls', () => {
+    const result = handleRealtimeToolCalls({
+        event: toolEvent('transfer_to_human', 'handoff_sales_1', {
+            reason: '採用支援サービスの営業提案',
+            destination: 'general'
+        }),
+        state: {},
+        callEndConfig: buildCallEndConfig(),
+        handoffConfig: {
+            enabled: true,
+            numbers: ['+819012345678'],
+            blockNonHandoffBusiness: true
+        }
+    });
+    const output = JSON.parse(result.outputs[0].item.output);
+
+    assert.equal(result.handled, true);
+    assert.deepEqual(result.handoffRequests, []);
+    assert.equal(output.ok, false);
+    assert.equal(output.reason, 'non_handoff_business_call');
+    assert.match(output.instruction, /必要があれば担当者から折り返す/);
+});

@@ -6,6 +6,7 @@ import {
     buildTransferToHumanTool,
     findTransferToHumanToolCalls,
     HandoffContextStore,
+    isNonHandoffBusinessCall,
     shouldAutoHandoffGeneral,
     summarizeHandoffTurns,
     updateTwilioCallTwiml
@@ -81,6 +82,15 @@ test('handoff auto-detects billing disputes and representative requests', () => 
     ]), true);
     assert.equal(shouldAutoHandoffGeneral([
         { role: 'user', text: '採用について質問があります。' }
+    ]), false);
+});
+
+test('handoff policy blocks recruiting sales proposals but keeps contract requests eligible', () => {
+    assert.equal(isNonHandoffBusinessCall([
+        { role: 'user', text: '弊社でエンジニアの採用サポートをしており、紹介料を抑えてアサインできます。' }
+    ]), true);
+    assert.equal(isNonHandoffBusinessCall([
+        { role: 'user', text: 'システム開発を依頼したいので、見積もりを相談したいです。' }
     ]), false);
 });
 
