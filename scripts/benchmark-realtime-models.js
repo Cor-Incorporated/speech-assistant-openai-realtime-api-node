@@ -18,7 +18,7 @@ dotenv.config();
 
 const {
     OPENAI_API_KEY,
-    REALTIME_BENCHMARK_MODELS = 'gpt-realtime-1.5,gpt-realtime-2',
+    REALTIME_BENCHMARK_MODELS = 'gpt-realtime-2.1,gpt-realtime-2',
     REALTIME_BENCHMARK_ITERATIONS = '3',
     REALTIME_BENCHMARK_TIMEOUT_MS = '15000',
     REALTIME_REASONING_EFFORT = 'low',
@@ -123,7 +123,9 @@ const buildTurnDetectionConfig = () => {
     };
 };
 
-const isRealtime2Model = (model) => model === 'gpt-realtime-2' || model.startsWith('gpt-realtime-2-');
+const isRealtime2Model = (model) => model === 'gpt-realtime-2'
+    || model.startsWith('gpt-realtime-2.')
+    || model.startsWith('gpt-realtime-2-');
 
 const buildSessionUpdate = (model) => {
     const session = {

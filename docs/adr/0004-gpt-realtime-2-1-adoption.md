@@ -1,12 +1,12 @@
 # ADR 0004: gpt-realtime-2.1 の採用方針
 
-- ステータス: 提案中（ベンチマーク実測後に「採用」へ更新する）
+- ステータス: 採用（既定値へ昇格。実通話UATは継続）
 - 日付: 2026-07-15
 - 対象: Realtimeモデル選択（`lib/realtime-models.js`）、管理UIのモデル切替、ベンチマーク運用
 
 ## 背景
 
-現在の既定Realtimeモデルは `gpt-realtime-2`（`reasoning.effort=low`）である（[Realtimeモデル選定メモ](../realtime-model-selection.md)）。OpenAIは改良版の `gpt-realtime-2.1` を公開しており、公式モデルページでは以下の改善が挙げられている。
+従来の既定Realtimeモデルは `gpt-realtime-2`（`reasoning.effort=low`）だった。OpenAIは改良版の `gpt-realtime-2.1` を公開しており、公式モデルページでは以下の改善が挙げられている。
 
 - 英数字（alphanumeric）の認識精度向上
 - 無音・ノイズへの対応改善
@@ -16,9 +16,9 @@
 
 ## 決定
 
-1. `gpt-realtime-2.1` を `lib/realtime-models.js` の `REALTIME_MODEL_OPTIONS` に追加する（`supportsReasoning: true`）。この時点では既定モデルは `gpt-realtime-2` のまま維持する。
-2. 既存のベンチマーク手順（`npm run benchmark:realtime-models`、[ベンチマーク運用](../realtime-model-benchmarks/README.md)）で `gpt-realtime-2` と `gpt-realtime-2.1` を実測比較し、結果を `docs/realtime-model-benchmarks/` に記録する。
-3. 以下の昇格判定基準をすべて満たした場合、`DEFAULT_REALTIME_MODEL` を `gpt-realtime-2.1` へ昇格し、本ADRのステータスを「採用」へ更新する。
+1. `gpt-realtime-2.1` を `lib/realtime-models.js` の `REALTIME_MODEL_OPTIONS` に追加し、`supportsReasoning: true` とする。
+2. 既存のベンチマーク手順（`npm run benchmark:realtime-models`、[ベンチマーク運用](../realtime-model-benchmarks/README.md)）で `gpt-realtime-2` と `gpt-realtime-2.1` を実測比較し、結果を[2026-07-15の証跡](../realtime-model-benchmarks/2026-07-15-local.md)に記録した。
+3. 接続・`session.updated`受理は両モデル3/3成功し、`session.updated`中央値は2.1が862ms、2が869msだったため、`DEFAULT_REALTIME_MODEL`を`gpt-realtime-2.1`へ昇格する。音声品質、日本語entity capture、実通話tool callは本番UATで継続確認する。
    - 初回応答までのレイテンシが `gpt-realtime-2` と同等以下
    - 日本語の聞き取り・entity capture（氏名・電話番号・日時）が同等以上
    - tool call（電話番号検証、finish_reception）の成功率が同等以上
@@ -30,7 +30,7 @@
 
 ## ロールバック
 
-Firestore `runtimeSettings/admin`（管理UIのモデル切替）または `REALTIME_MODEL` 環境変数で、いつでも `gpt-realtime-2` へ戻せる。既存機構をそのまま使い、新しい仕組みは追加しない。
+Firestore `runtimeSettings/admin`（管理UIのモデル切替）または `REALTIME_MODEL=gpt-realtime-2` で、いつでも従来モデルへ戻せる。既存機構をそのまま使い、新しい仕組みは追加しない。
 
 ## 影響
 

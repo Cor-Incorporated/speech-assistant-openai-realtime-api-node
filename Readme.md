@@ -109,7 +109,7 @@ ADMIN_BASIC_USER=admin ADMIN_BASIC_PASSWORD=change-me npm run start
 
 `検証ログ削除` は、`CA_SMOKE` で始まる疎通確認ログと、文字起こし・turns・要約・用件がすべて空のログだけを削除します。
 
-管理UIのRealtimeモデル選択はFirestore `runtimeSettings/admin` に保存され、次回以降の新しい通話から `gpt-realtime-1.5` / `gpt-realtime-2` の選択が反映されます。進行中の通話には反映しません。
+管理UIのRealtimeモデル選択はFirestore `runtimeSettings/admin` に保存され、次回以降の新しい通話から `gpt-realtime-2.1`（既定） / `gpt-realtime-2`（ロールバック） / `gpt-realtime-1.5` の選択が反映されます。進行中の通話には反映しません。
 
 ## アプリをテスト
 開発サーバーが動作している間に、**必要条件**で購入した電話番号に電話をかけてください。紹介後、AIアシスタントと話すことができます。楽しんでください！

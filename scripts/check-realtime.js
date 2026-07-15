@@ -15,7 +15,7 @@ dotenv.config();
 
 const {
     OPENAI_API_KEY,
-    REALTIME_MODEL = 'gpt-realtime-2',
+    REALTIME_MODEL = 'gpt-realtime-2.1',
     REALTIME_REASONING_EFFORT = 'low',
     REALTIME_CHECK_TIMEOUT_MS = '10000',
     TRANSCRIPTION_MODEL = 'gpt-4o-transcribe',
