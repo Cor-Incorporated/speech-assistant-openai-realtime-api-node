@@ -31,6 +31,19 @@ test('payment disputes and complaints escalate to realtime 2.1 with human judgme
     assert.match(buildComplexRealtimeInstructions(result.category), /苦情や支払いトラブルだけを理由に担当者へ転送してはいけません/);
 });
 
+test('legal and security-risk consultations escalate to realtime 2.1', () => {
+    for (const text of [
+        '契約を解除したいです。',
+        '個人情報が漏れたかもしれません。',
+        '法務か弁護士に相談したいです。'
+    ]) {
+        const result = classifyRealtimeConversation([{ role: 'user', text }]);
+        assert.equal(result.targetModel, COMPLEX_REALTIME_MODEL, text);
+        assert.equal(result.category, 'complex_support', text);
+        assert.equal(result.humanTransferAllowed, true, text);
+    }
+});
+
 test('harassment escalates for careful AI handling but never permits human transfer', () => {
     const result = classifyRealtimeConversation([{
         role: 'user',

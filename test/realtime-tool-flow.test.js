@@ -235,6 +235,59 @@ test('Realtime tool flow blocks complaint transfer until complex model approval'
     assert.equal(output.reason, 'non_urgent_general_handoff');
 });
 
+test('Realtime tool flow permits legal transfer after complex-support escalation', () => {
+    const result = handleRealtimeToolCalls({
+        event: toolEvent('transfer_to_human', 'handoff_legal_1', {
+            reason: '契約解除の法務相談',
+            destination: 'general'
+        }),
+        state: {
+            turns: [{ role: 'user', text: '契約を解除したいので法務に相談したいです。' }]
+        },
+        callEndConfig: buildCallEndConfig(),
+        handoffConfig: {
+            enabled: true,
+            numbers: ['+817085611659'],
+            destinationNumbers: { contract: '', general: '+817085611659' },
+            enforceRoutingPolicy: true
+        },
+        allowComplexComplaintHandoff: true
+    });
+    const output = JSON.parse(result.outputs[0].item.output);
+
+    assert.deepEqual(result.handoffRequests, [{
+        callId: 'handoff_legal_1',
+        reason: '契約解除の法務相談',
+        destination: 'general'
+    }]);
+    assert.equal(output.status, 'starting');
+});
+
+test('Realtime tool flow directs life-safety emergencies to emergency services', () => {
+    const result = handleRealtimeToolCalls({
+        event: toolEvent('transfer_to_human', 'handoff_emergency_1', {
+            reason: '救急車が必要',
+            destination: 'general'
+        }),
+        state: {
+            turns: [{ role: 'user', text: '人が倒れて意識がありません。' }]
+        },
+        callEndConfig: buildCallEndConfig(),
+        handoffConfig: {
+            enabled: true,
+            numbers: ['+817085611659'],
+            destinationNumbers: { contract: '', general: '+817085611659' },
+            enforceRoutingPolicy: true
+        },
+        allowComplexComplaintHandoff: true
+    });
+    const output = JSON.parse(result.outputs[0].item.output);
+
+    assert.deepEqual(result.handoffRequests, []);
+    assert.equal(output.reason, 'emergency_services');
+    assert.match(output.instruction, /110または119/);
+});
+
 test('Realtime tool flow keeps harassment in AI handling even after complex escalation', () => {
     const result = handleRealtimeToolCalls({
         event: toolEvent('transfer_to_human', 'handoff_harassment_blocked', {
