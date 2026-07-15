@@ -79,6 +79,20 @@ test('whisper confirmation keeps accepted leg connected and hangs up rejection',
     assert.match(buildWhisperTwiml({ summary: '資料請求', confirmUrl: 'https://voice.example/confirm' }), /資料請求/);
 });
 
+test('whisper tells the recipient that digit 2 returns the caller to the call center', () => {
+    const body = buildWhisperTwiml({
+        summary: 'イベント開催の相談',
+        confirmUrl: 'https://voice.example/confirm',
+        acceptDigit: '1',
+        rejectDigit: '2'
+    });
+    const rejected = buildWhisperConfirmTwiml({ accepted: false, rejectedToCallCenter: true });
+
+    assert.match(body, /コールセンターに戻す場合は2/);
+    assert.match(rejected, /コールセンターに戻します/);
+    assert.match(rejected, /Hangup/);
+});
+
 test('whisper identifies the company reception without exposing AI wording', () => {
     const body = buildWhisperTwiml({ summary: '資料請求', confirmUrl: 'https://voice.example/confirm' });
 

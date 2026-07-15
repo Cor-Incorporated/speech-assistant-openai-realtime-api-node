@@ -7,7 +7,10 @@ import {
     findTransferToHumanToolCalls,
     HandoffContextStore,
     isNonHandoffBusinessCall,
+    isContractRequest,
     shouldAutoHandoffGeneral,
+    shouldAllowHumanHandoff,
+    summarizeHandoffWhisper,
     summarizeHandoffTurns,
     updateTwilioCallTwiml
 } from '../lib/handoff.js';
@@ -26,6 +29,8 @@ test('handoff configuration normalizes numbers and stays disabled by default', (
         contract: '+819012345678',
         general: '+818012345678'
     });
+    assert.equal(enabled.whisperAcceptDigit, '1');
+    assert.equal(enabled.whisperRejectDigit, '2');
     assert.equal(buildTransferToHumanTool(disabled), null);
     assert.equal(buildTransferToHumanTool(enabled).name, 'transfer_to_human');
     assert.match(appendHandoffInstructions('base', enabled), /transfer_to_human/);
@@ -79,10 +84,38 @@ test('handoff auto-detects billing disputes and representative requests', () => 
     ]), true);
     assert.equal(shouldAutoHandoffGeneral([
         { role: 'user', text: '代表の方に直接相談したいです。' }
+    ]), false);
+    assert.equal(shouldAutoHandoffGeneral([
+        { role: 'user', text: '急ぎなので代表の方に今すぐ相談したいです。' }
     ]), true);
     assert.equal(shouldAutoHandoffGeneral([
         { role: 'user', text: '採用について質問があります。' }
     ]), false);
+});
+
+test('handoff policy keeps non-urgent event calls in the call center', () => {
+    const eventTurns = [
+        { role: 'user', text: 'エンジニアを集めたイベントを開催したい相談です。' }
+    ];
+    const contractTurns = [
+        { role: 'user', text: 'システム開発を依頼したいので見積もりを相談したいです。' }
+    ];
+
+    assert.equal(isNonHandoffBusinessCall(eventTurns), true);
+    assert.equal(isContractRequest(contractTurns), true);
+    assert.equal(shouldAllowHumanHandoff(eventTurns, 'general'), false);
+    assert.equal(shouldAllowHumanHandoff(contractTurns, 'contract'), true);
+});
+
+test('handoff whisper summary is one compact sentence', () => {
+    const summary = summarizeHandoffWhisper([
+        { role: 'user', text: 'イベントのお誘いです。' },
+        { role: 'user', text: 'エンジニアを集めて会場はエンジニアカフェです。' }
+    ]);
+
+    assert.match(summary, /^用件は/);
+    assert.doesNotMatch(summary, /。/);
+    assert.ok(summary.length <= 180);
 });
 
 test('handoff policy blocks recruiting sales proposals but keeps contract requests eligible', () => {

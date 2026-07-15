@@ -36,6 +36,7 @@ import {
     buildTransferToHumanTool,
     HandoffContextStore,
     summarizeHandoffTurns,
+    summarizeHandoffWhisper,
     shouldAutoHandoffGeneral,
     isNonHandoffBusinessCall,
     updateTwilioCallTwiml
@@ -80,7 +81,7 @@ const DEFAULT_SYSTEM_MESSAGE = [
     '会話を勝手に終了せず、必要に応じて担当者へ引き継ぐ旨を伝え、受付完了時は終話ルールに従って案内してください。',
     '採用応募・採用関連、営業・勧誘・広告、一般的な案内はAIで用件を受け付け、担当者へ自動転送しないでください。営業・採用提案は担当者へ報告し、必要があれば担当者から折り返すと案内してください。そのため、折り返し希望の有無にかかわらず、必要時の連絡先電話番号を一つ聞き、validate_callback_phoneで検証して記録してください。電話番号を確認できるまでfinish_receptionを呼び出さないでください。終話時のcallback_requiredは、発信者が折り返しを希望した場合だけtrueにしてください。',
     '受託案件、開発・制作、業務委託、見積相談など仕事の依頼で人間対応が必要な場合は、transfer_to_humanをdestination="contract"で使用してください。',
-    'それ以外で人間対応が必要な場合は、transfer_to_humanをdestination="general"で使用してください。',
+    'それ以外で、急ぎ・緊急の人間対応が必要な場合だけtransfer_to_humanをdestination="general"で使用してください。緊急性のない相談、イベント、一般案内、代表者への取次ぎ依頼はコールセンターでヒアリングして終話してください。',
     'まだ社名や業務ナレッジが未設定のため、断定できない内容は「確認して折り返します」と案内してください。'
 ].join('\n');
 
@@ -121,6 +122,7 @@ const {
     HANDOFF_NUMBERS = '',
     HANDOFF_DIAL_TIMEOUT_S = '20',
     HANDOFF_WHISPER_ACCEPT_DIGIT = '1',
+    HANDOFF_WHISPER_REJECT_DIGIT = '2',
     HANDOFF_CALLER_ID = '',
     GOOGLE_CLOUD_PROJECT = '',
     CALL_LOG_FIRESTORE_ENABLED = 'false',
@@ -192,6 +194,7 @@ const HANDOFF_CONFIG = buildHandoffConfig({
     HANDOFF_NUMBERS,
     HANDOFF_DIAL_TIMEOUT_S,
     HANDOFF_WHISPER_ACCEPT_DIGIT,
+    HANDOFF_WHISPER_REJECT_DIGIT,
     HANDOFF_CALLER_ID
 });
 const CALL_END_CONFIG = buildCallEndConfig({
@@ -585,7 +588,7 @@ fastify.post('/handoff/whisper', async (request, reply) => {
     if (!isValidTwilioWebhook({ request })) return reply.code(403).send('Forbidden');
 
     const context = await handoffContextStore.get(callSid);
-    const summary = context?.summary || '受付内容の確認';
+    const summary = context?.whisperSummary || context?.summary || '受付内容の確認';
     await handoffContextStore.update(callSid, { status: 'whisper_started' });
     auditLog('handoff.whisper.started', {
         actor: 'twilio',
@@ -596,6 +599,7 @@ fastify.post('/handoff/whisper', async (request, reply) => {
     return sendTwiml(reply, buildWhisperTwiml({
         summary,
         acceptDigit: HANDOFF_CONFIG.whisperAcceptDigit,
+        rejectDigit: HANDOFF_CONFIG.whisperRejectDigit,
         confirmUrl: getPublicUrl(request, `/handoff/whisper-confirm?call_sid=${encodeURIComponent(callSid)}`)
     }));
 });
@@ -605,17 +609,20 @@ fastify.post('/handoff/whisper-confirm', async (request, reply) => {
     if (!HANDOFF_CONFIG.enabled) return reply.code(404).send({ error: 'handoff_disabled' });
     if (!isValidTwilioWebhook({ request })) return reply.code(403).send('Forbidden');
 
-    const accepted = String(request.body?.Digits || '') === HANDOFF_CONFIG.whisperAcceptDigit;
+    const digits = String(request.body?.Digits || '');
+    const accepted = digits === HANDOFF_CONFIG.whisperAcceptDigit;
+    const rejectedToCallCenter = digits === HANDOFF_CONFIG.whisperRejectDigit;
     await handoffContextStore.update(callSid, {
         status: accepted ? 'whisper_accepted' : 'whisper_rejected',
-        whisperAccepted: accepted
+        whisperAccepted: accepted,
+        whisperRejectDigit: rejectedToCallCenter ? digits : ''
     });
     auditLog('handoff.whisper.completed', {
         actor: 'twilio',
         target: callSid,
         metadata: { accepted }
     });
-    return sendTwiml(reply, buildWhisperConfirmTwiml({ accepted }));
+    return sendTwiml(reply, buildWhisperConfirmTwiml({ accepted, rejectedToCallCenter }));
 });
 
 fastify.post('/handoff/leg-status', async (request, reply) => {
@@ -922,10 +929,12 @@ fastify.register(async (fastify) => {
                 || HANDOFF_CONFIG.numbers[0]
                 || '';
             const summary = summarizeHandoffTurns(session.turns);
+            const whisperSummary = summarizeHandoffWhisper(session.turns);
             const context = {
                 reason: reason || '担当者対応が必要',
                 destination: selectedDestination,
                 summary: summary || '受付内容を管理画面で確認してください。',
+                whisperSummary,
                 from: maskPhone(session.from),
                 to: maskPhone(session.to),
                 status: 'requested',
@@ -1001,7 +1010,8 @@ fastify.register(async (fastify) => {
                 handoffConfig: {
                     ...HANDOFF_CONFIG,
                     blockNonHandoffBusiness: nonHandoffBusinessCall,
-                    requireCallbackContact: nonHandoffBusinessCall
+                    requireCallbackContact: nonHandoffBusinessCall,
+                    enforceRoutingPolicy: true
                 },
                 onPhoneValidation: (metadata) => auditLog('callback_phone.validation', {
                     actor: 'realtime',
