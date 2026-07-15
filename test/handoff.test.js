@@ -135,6 +135,18 @@ test('handoff policy blocks recruiting sales proposals but keeps contract reques
     assert.equal(isNonHandoffBusinessCall([
         { role: 'user', text: 'システム開発を依頼したいので、見積もりを相談したいです。' }
     ]), false);
+    assert.equal(isContractRequest([
+        { role: 'user', text: 'システム開発を依頼したいので、見積もりを相談したいです。' }
+    ]), true);
+    assert.equal(isNonHandoffBusinessCall([
+        { role: 'user', text: '採用案件の紹介ができる営業電話です。' }
+    ]), true);
+    assert.equal(isSalesBusinessCall([
+        { role: 'user', text: '採用案件の紹介ができる営業電話です。' }
+    ]), true);
+    assert.equal(isContractRequest([
+        { role: 'user', text: '採用案件の紹介ができる営業電話です。' }
+    ]), false);
     assert.equal(isSalesBusinessCall([
         { role: 'user', text: 'エンジニアを集めたイベントを開催したい相談です。' }
     ]), false);
