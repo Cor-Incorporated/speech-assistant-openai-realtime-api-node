@@ -37,6 +37,7 @@ import {
     HandoffContextStore,
     summarizeHandoffTurns,
     shouldAutoHandoffGeneral,
+    isNonHandoffBusinessCall,
     updateTwilioCallTwiml
 } from './lib/handoff.js';
 import { NotificationOutbox } from './lib/notification-outbox.js';
@@ -77,7 +78,7 @@ const DEFAULT_SYSTEM_MESSAGE = [
     '氏名は聞こえた読みをそのままカタカナで確認してください。一般的な漢字名へ勝手に変換しないでください。',
     '氏名が少しでも不確かな場合は「お名前の読みをカタカナで確認させてください」と聞き返してください。',
     '会話を勝手に終了せず、必要に応じて担当者へ引き継ぐ旨を伝え、受付完了時は終話ルールに従って案内してください。',
-    '採用応募・採用関連、営業・勧誘・広告、一般的な案内はAIで用件を受け付け、担当者へ自動転送しないでください。',
+    '採用応募・採用関連、営業・勧誘・広告、一般的な案内はAIで用件を受け付け、担当者へ自動転送しないでください。営業・採用提案は担当者へ報告し、必要があれば担当者から折り返すと案内してください。明確な折り返し希望がなければ、折り返し番号を聞かずcallback_required=falseで受付を完了してください。',
     '受託案件、開発・制作、業務委託、見積相談など仕事の依頼で人間対応が必要な場合は、transfer_to_humanをdestination="contract"で使用してください。',
     'それ以外で人間対応が必要な場合は、transfer_to_humanをdestination="general"で使用してください。',
     'まだ社名や業務ナレッジが未設定のため、断定できない内容は「確認して折り返します」と案内してください。'
@@ -992,11 +993,15 @@ fastify.register(async (fastify) => {
         };
 
         const handleToolCalls = (event) => {
+            const nonHandoffBusinessCall = isNonHandoffBusinessCall(session.turns);
             const result = handleRealtimeToolCalls({
                 event,
                 state: session,
                 callEndConfig: CALL_END_CONFIG,
-                handoffConfig: HANDOFF_CONFIG,
+                handoffConfig: {
+                    ...HANDOFF_CONFIG,
+                    blockNonHandoffBusiness: nonHandoffBusinessCall
+                },
                 onPhoneValidation: (metadata) => auditLog('callback_phone.validation', {
                     actor: 'realtime',
                     target: session.callSid || sessionId,
@@ -1010,6 +1015,13 @@ fastify.register(async (fastify) => {
             }
             for (const callEndRequest of result.callEndRequests) {
                 requestCallEnd(callEndRequest);
+            }
+            if (nonHandoffBusinessCall && result.responseReason === 'transfer_to_human_tool_output') {
+                auditLog('handoff.blocked_by_business_policy', {
+                    actor: 'system',
+                    target: session.callSid || sessionId,
+                    metadata: { policy: 'non_handoff_business' }
+                });
             }
             if (result.handoffRequests.length > 0) {
                 void startHandoff(result.handoffRequests[0]);
@@ -1140,6 +1152,7 @@ fastify.register(async (fastify) => {
                         HANDOFF_CONFIG.enabled
                         && !session.handoff?.started
                         && !session.handoff?.starting
+                        && !isNonHandoffBusinessCall(session.turns)
                         && shouldAutoHandoffGeneral(session.turns)
                     ) {
                         session.handoff = {
