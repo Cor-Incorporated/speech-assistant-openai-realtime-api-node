@@ -184,6 +184,33 @@ test('Realtime tool flow emits a handoff request only when enabled with recipien
     assert.equal(output.destination, 'contract');
 });
 
+test('Realtime tool flow routes payment disputes to general even if model requests contract', () => {
+    const result = handleRealtimeToolCalls({
+        event: toolEvent('transfer_to_human', 'handoff_payment_1', {
+            reason: '業務委託費の支払い差額',
+            destination: 'contract'
+        }),
+        state: {
+            turns: [{ role: 'user', text: '私に払った業務委託費が1万円ほど足りなかったので、現状を確認したいです。' }]
+        },
+        callEndConfig: buildCallEndConfig(),
+        handoffConfig: {
+            enabled: true,
+            numbers: ['+819012345678', '+817085611659'],
+            destinationNumbers: { contract: '+819012345678', general: '+817085611659' },
+            enforceRoutingPolicy: true
+        }
+    });
+    const output = JSON.parse(result.outputs[0].item.output);
+
+    assert.deepEqual(result.handoffRequests, [{
+        callId: 'handoff_payment_1',
+        reason: '業務委託費の支払い差額',
+        destination: 'general'
+    }]);
+    assert.equal(output.destination, 'general');
+});
+
 test('Realtime tool flow blocks human transfer for non-handoff business calls', () => {
     const result = handleRealtimeToolCalls({
         event: toolEvent('transfer_to_human', 'handoff_sales_1', {
@@ -204,7 +231,8 @@ test('Realtime tool flow blocks human transfer for non-handoff business calls', 
     assert.deepEqual(result.handoffRequests, []);
     assert.equal(output.ok, false);
     assert.equal(output.reason, 'non_handoff_business_call');
-    assert.match(output.instruction, /必要があれば担当者から折り返す/);
+    assert.match(output.instruction, /担当者へ報告/);
+    assert.doesNotMatch(output.instruction, /営業|採用|緊急性/);
 });
 
 test('Realtime tool flow requires a contact number before closing a business call', () => {

@@ -10,6 +10,7 @@ import {
     isNonHandoffBusinessCall,
     isSalesBusinessCall,
     isContractRequest,
+    resolveHandoffDestination,
     shouldAutoHandoffGeneral,
     shouldAllowHumanHandoff,
     summarizeHandoffWhisper,
@@ -93,6 +94,15 @@ test('handoff auto-detects billing disputes and representative requests', () => 
     assert.equal(shouldAutoHandoffGeneral([
         { role: 'user', text: '採用について質問があります。' }
     ]), false);
+    assert.equal(shouldAutoHandoffGeneral([
+        { role: 'user', text: '私に払った業務委託費が1万円ほど足りなかったので、現状を確認したいです。' }
+    ]), true);
+    assert.equal(isNonHandoffBusinessCall([
+        { role: 'user', text: '私に払った業務委託費が1万円ほど足りなかったので、現状を確認したいです。' }
+    ]), false);
+    assert.equal(resolveHandoffDestination([
+        { role: 'user', text: '私に払った業務委託費が1万円ほど足りなかったので、現状を確認したいです。' }
+    ], 'contract'), 'general');
 });
 
 test('handoff policy keeps non-urgent event calls in the call center', () => {
