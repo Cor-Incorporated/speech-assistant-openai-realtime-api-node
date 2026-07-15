@@ -20,9 +20,24 @@ test('handoff configuration normalizes numbers and stays disabled by default', (
     assert.equal(disabled.enabled, false);
     assert.equal(enabled.enabled, true);
     assert.deepEqual(enabled.numbers, ['+819012345678', '+818012345678']);
+    assert.deepEqual(enabled.destinationNumbers, {
+        contract: '+819012345678',
+        general: '+818012345678'
+    });
     assert.equal(buildTransferToHumanTool(disabled), null);
     assert.equal(buildTransferToHumanTool(enabled).name, 'transfer_to_human');
     assert.match(appendHandoffInstructions('base', enabled), /transfer_to_human/);
+});
+
+test('handoff configuration routes JSON destinations independently', () => {
+    const config = buildHandoffConfig({
+        HANDOFF_ENABLED: 'true',
+        HANDOFF_NUMBERS: JSON.stringify({ contract: '+819010869492', general: '+817085611659' })
+    });
+
+    assert.deepEqual(config.numbers, ['+819010869492', '+817085611659']);
+    assert.equal(config.destinationNumbers.contract, '+819010869492');
+    assert.equal(config.destinationNumbers.general, '+817085611659');
 });
 
 test('handoff tool calls extract a safe reason', () => {
@@ -32,12 +47,16 @@ test('handoff tool calls extract a safe reason', () => {
                 type: 'function_call',
                 name: 'transfer_to_human',
                 call_id: 'handoff_1',
-                arguments: JSON.stringify({ reason: '人間に相談したい' })
+                arguments: JSON.stringify({ reason: '受託案件の相談', destination: 'contract' })
             }]
         }
     });
 
-    assert.deepEqual(result, [{ callId: 'handoff_1', reason: '人間に相談したい' }]);
+    assert.deepEqual(result, [{
+        callId: 'handoff_1',
+        reason: '受託案件の相談',
+        destination: 'contract'
+    }]);
 });
 
 test('handoff summary uses recent turns and caps its length', () => {

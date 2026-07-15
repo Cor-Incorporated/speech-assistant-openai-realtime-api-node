@@ -62,6 +62,8 @@ gcloud run services update speech-assistant-realtime \
 担当者のE.164番号を確認してから、番号をSecret Managerへ登録する。番号はリポジトリ・issue・ログへ書かない。
 
 ```sh
+# stdinへ実番号をJSONで入力する（値はログ・履歴へ出さない）。
+# {"contract":"+81...","general":"+81..."}
 gcloud secrets versions add handoff-numbers \
   --project=cor-jp-web --data-file=-
 gcloud run services update speech-assistant-realtime \

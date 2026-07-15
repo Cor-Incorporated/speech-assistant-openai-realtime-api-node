@@ -73,6 +73,9 @@ const DEFAULT_SYSTEM_MESSAGE = [
     '氏名は聞こえた読みをそのままカタカナで確認してください。一般的な漢字名へ勝手に変換しないでください。',
     '氏名が少しでも不確かな場合は「お名前の読みをカタカナで確認させてください」と聞き返してください。',
     '会話を勝手に終了せず、必要に応じて担当者へ引き継ぐ旨を伝え、受付完了時は終話ルールに従って案内してください。',
+    '採用応募・採用関連、営業・勧誘・広告、一般的な案内はAIで用件を受け付け、担当者へ自動転送しないでください。',
+    '受託案件、開発・制作、業務委託、見積相談など仕事の依頼で人間対応が必要な場合は、transfer_to_humanをdestination="contract"で使用してください。',
+    'それ以外で人間対応が必要な場合は、transfer_to_humanをdestination="general"で使用してください。',
     'まだ社名や業務ナレッジが未設定のため、断定できない内容は「確認して折り返します」と案内してください。'
 ].join('\n');
 
@@ -788,13 +791,20 @@ fastify.register(async (fastify) => {
             }, CALL_END_CONFIG.markTimeoutMs);
         };
 
-        const startHandoff = async ({ reason } = {}) => {
+        const startHandoff = async ({ reason, destination = 'general' } = {}) => {
             if (session.handoff?.started) return;
 
             const callSid = session.callSid || session.id;
+            const selectedDestination = HANDOFF_CONFIG.destinationNumbers[destination]
+                ? destination
+                : 'general';
+            const recipient = HANDOFF_CONFIG.destinationNumbers[selectedDestination]
+                || HANDOFF_CONFIG.numbers[0]
+                || '';
             const summary = summarizeHandoffTurns(session.turns);
             const context = {
                 reason: reason || '担当者対応が必要',
+                destination: selectedDestination,
                 summary: summary || '受付内容を管理画面で確認してください。',
                 from: maskPhone(session.from),
                 to: maskPhone(session.to),
@@ -806,7 +816,7 @@ fastify.register(async (fastify) => {
                 await handoffContextStore.save(callSid, context);
                 const twiml = buildHandoffDialTwiml({
                     callSid,
-                    numbers: HANDOFF_CONFIG.numbers,
+                    numbers: recipient ? [recipient] : [],
                     callerId: HANDOFF_CONFIG.callerId || session.to,
                     timeoutSeconds: HANDOFF_CONFIG.dialTimeoutSeconds,
                     whisperUrl: getPublicUrl(req, '/handoff/whisper'),
@@ -843,7 +853,8 @@ fastify.register(async (fastify) => {
                     metadata: {
                         from: context.from,
                         to: context.to,
-                        recipientCount: HANDOFF_CONFIG.numbers.length
+                        destination: selectedDestination,
+                        recipientCount: recipient ? 1 : 0
                     }
                 });
                 if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();

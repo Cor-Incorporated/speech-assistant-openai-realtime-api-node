@@ -54,7 +54,7 @@ AIが対応困難と判断した通話を、担当者の携帯電話へ転送す
 | 変数 | 既定 | 説明 |
 |---|---|---|
 | `HANDOFF_ENABLED` | `false` | 機能フラグ。falseなら tool自体をセッションに追加しない |
-| `HANDOFF_NUMBERS` | （空） | 転送先電話番号のカンマ区切りリスト。**実番号はSecret/環境変数のみで管理し、リポジトリ・docに書かない** |
+| `HANDOFF_NUMBERS` | （空） | `{"contract":"+81...","general":"+81..."}` のJSON。受託案件とその他の人間対応を用途別に1番号へ転送する。旧カンマ区切りも互換維持。**実番号はSecret/環境変数のみで管理し、リポジトリ・docに書かない** |
 | `HANDOFF_DIAL_TIMEOUT_S` | `20` | 呼び出しタイムアウト（秒） |
 | `HANDOFF_WHISPER_ACCEPT_DIGIT` | `1` | 受諾キー |
 | `HANDOFF_CALLER_ID` | （空） | `<Dial callerId>`。通常は自番号（050） |
@@ -70,6 +70,7 @@ AIが対応困難と判断した通話を、担当者の携帯電話へ転送す
 ## テスト方針
 
 - `node --test`: TwiML生成（Dial/Number/whisper/Gather）、DialCallStatus分岐、番号マスクのユニットテスト
+- `transfer_to_human` は `destination=contract`（受託案件）または `destination=general`（その他の人間対応）を受け、該当する1番号だけを `<Dial>` する。採用・営業・一般案内はAI受付後に通知するため自動転送しない。
 - 手動: 実050番号→AI→tool発火→検証用携帯への転送、で通し確認（結果をPR本文へ記録）
 - 反証テスト: `HANDOFF_ENABLED=false` で転送toolがセッションに含まれないこと
 
