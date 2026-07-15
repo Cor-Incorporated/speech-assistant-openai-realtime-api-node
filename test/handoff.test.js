@@ -12,7 +12,9 @@ import {
     isSalesBusinessCall,
     isContractRequest,
     isComplaintCall,
+    isComplexSupportCall,
     isCustomerHarassmentCall,
+    isEmergencyCall,
     resolveHandoffDestination,
     shouldAutoHandoffGeneral,
     shouldAllowHumanHandoff,
@@ -135,6 +137,64 @@ test('handoff policy keeps non-urgent event calls in the call center', () => {
     assert.equal(isContractRequest(contractTurns), true);
     assert.equal(shouldAllowHumanHandoff(eventTurns, 'general'), false);
     assert.equal(shouldAllowHumanHandoff(contractTurns, 'contract'), true);
+});
+
+test('handoff classification keeps ordinary and non-urgent business inquiries out of human transfer', () => {
+    assert.equal(isSalesBusinessCall([{ role: 'user', text: '営業時間を教えてください。' }]), false);
+    assert.equal(isNonHandoffBusinessCall([{ role: 'user', text: '営業時間を教えてください。' }]), false);
+
+    for (const text of [
+        'エンジニアとして応募したいです。',
+        '業務提携について相談したいです。',
+        '御社の代理店になりたいです。',
+        '取材のお願いでお電話しました。'
+    ]) {
+        const turns = [{ role: 'user', text }];
+        assert.equal(isNonHandoffBusinessCall(turns), true, text);
+        assert.equal(isContractRequest(turns), false, text);
+        assert.equal(shouldAllowHumanHandoff(turns, 'general'), false, text);
+    }
+});
+
+test('handoff classification keeps urgent sales and partnership wording out of human transfer', () => {
+    for (const text of [
+        '急ぎの営業提案で代表の方におつなぎください。',
+        '至急、業務提携のご相談で担当者にお話ししたいです。',
+        '今日中に取材の件で責任者に確認したいです。'
+    ]) {
+        const turns = [{ role: 'user', text }];
+        assert.equal(shouldAutoHandoffGeneral(turns), true, text);
+        assert.equal(isNonHandoffBusinessCall(turns), true, text);
+        assert.equal(shouldAllowHumanHandoff(turns, 'general'), false, text);
+    }
+
+    const urgentRepresentativeTurns = [{ role: 'user', text: '急ぎで代表の方に相談したいです。' }];
+    assert.equal(isNonHandoffBusinessCall(urgentRepresentativeTurns), false);
+    assert.equal(shouldAllowHumanHandoff(urgentRepresentativeTurns, 'general'), true);
+});
+
+test('handoff classification escalates legal and security-risk consultations', () => {
+    for (const text of [
+        '契約を解除したいです。',
+        '個人情報が漏れたかもしれません。',
+        '不正アクセスされました。',
+        'セキュリティ事故が起きました。',
+        '法務か弁護士に相談したいです。'
+    ]) {
+        const turns = [{ role: 'user', text }];
+        assert.equal(isComplexSupportCall(turns), true, text);
+        assert.equal(isComplaintCall(turns), true, text);
+        assert.equal(isNonHandoffBusinessCall(turns), false, text);
+        assert.equal(resolveHandoffDestination(turns, 'contract'), 'general', text);
+    }
+});
+
+test('handoff classification keeps life-safety emergencies out of company transfer', () => {
+    const turns = [{ role: 'user', text: '人が倒れて意識がありません。救急車を呼んでください。' }];
+
+    assert.equal(isEmergencyCall(turns), true);
+    assert.equal(shouldAutoHandoffGeneral(turns), false);
+    assert.equal(shouldAllowHumanHandoff(turns, 'general'), false);
 });
 
 test('handoff whisper summary is one compact sentence', () => {

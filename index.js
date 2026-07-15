@@ -37,7 +37,9 @@ import {
     HandoffContextStore,
     summarizeHandoffTurns,
     summarizeHandoffWhisper,
+    isComplaintCall,
     isContractRequest,
+    isEmergencyCall,
     isNonHandoffBusinessCall,
     isSalesBusinessCall,
     isHandoffCallConnected,
@@ -91,8 +93,10 @@ const DEFAULT_SYSTEM_MESSAGE = [
     '支払い差額、正当な苦情、強い不満、暴言、脅し、威圧など判断の難しい用件は、内部カテゴリを説明せず、口論や説教をせずにAI受付を継続してください。システムが必要に応じて高精度対応モードへ切り替えます。',
     '苦情・クレーム・支払いトラブルは、苦情だけを理由に担当者へ即時転送してはいけません。高精度対応モードで事実関係、相手の希望、緊急性を整理し、人間の判断・謝罪・補償判断・事実確認が必要な場合だけ担当者への転送を検討してください。',
     '脅迫・暴言・威圧などは人間へ自動転送せず、AIコールセンターとして落ち着いて対応してください。反論や説教をせず、対応可能な範囲を示し、攻撃的な発言が続く場合は必要事項を最小限確認して丁寧に終話してください。',
+    '生命・身体に関わる緊急事態、火災、救急車が必要な状況などは担当者へ転送せず、直ちに危険がある場合は110または119へ連絡するよう案内してください。',
     '会話を勝手に終了せず、必要に応じて担当者へ引き継ぐ旨を伝え、受付完了時は終話ルールに従って案内してください。',
-    '採用応募・採用関連、営業・勧誘・広告、一般的な案内はAIで用件を受け付け、担当者へ自動転送しないでください。営業・採用提案は担当者へ報告し、必要があれば担当者から折り返すと案内してください。営業では折り返し希望の有無にかかわらず必要時の連絡先電話番号を一つ聞き、validate_callback_phoneで検証して記録してください。発信者が明確に折り返しを希望しない限り、営業のcallback_requiredはfalseにしてください。イベント・一般相談・緊急性のない代表者への取次ぎなど営業ではない相談は、必要時の連絡先電話番号を聞いて検証し、担当者から改めて折り返すためcallback_required=trueにしてください。電話番号を確認できるまでfinish_receptionを呼び出さないでください。',
+    '採用応募・採用選考、営業・勧誘・広告、業務提携・代理店・取材・協賛、一般的な案内はAIで用件を受け付け、担当者へ自動転送しないでください。営業・採用提案は担当者へ報告し、必要があれば担当者から折り返すと案内してください。営業では折り返し希望の有無にかかわらず必要時の連絡先電話番号を一つ聞き、validate_callback_phoneで検証して記録してください。発信者が明確に折り返しを希望しない限り、営業のcallback_requiredはfalseにしてください。採用応募・採用選考、イベント、業務提携、代理店、取材、協賛、一般相談、緊急性のない代表者への取次ぎは、連絡先電話番号を聞いて検証し、担当者から改めて折り返すためcallback_required=trueにしてください。営業時間や使い方など単純な案内は、確認できる範囲で回答し、回答できない場合だけ折り返し受付にしてください。電話番号を確認できるまでfinish_receptionを呼び出さないでください。',
+    '契約解除・契約違反、法務・弁護士・訴訟、個人情報漏えい・不正アクセス・セキュリティ事故などは、通常受付で断定せず、高精度対応モードへ切り替えて事実関係と緊急性を整理してください。',
     '受託案件、開発・制作、業務委託、見積相談など仕事の依頼で人間対応が必要な場合は、transfer_to_humanをdestination="contract"で使用してください。',
     'それ以外で、急ぎ・緊急の人間対応が必要な場合だけtransfer_to_humanをdestination="general"で使用してください。緊急性のない相談、イベント、一般案内、代表者への取次ぎ依頼はコールセンターでヒアリングして終話してください。',
     'まだ社名や業務ナレッジが未設定のため、断定できない内容は「確認して折り返します」と案内してください。'
@@ -1033,7 +1037,9 @@ fastify.register(async (fastify) => {
 
         const handleToolCalls = (event) => {
             const nonHandoffBusinessCall = isNonHandoffBusinessCall(session.turns);
-            const requireBusinessCallback = nonHandoffBusinessCall && !isSalesBusinessCall(session.turns);
+            const complexSupportCallbackRequired = isComplaintCall(session.turns);
+            const requireBusinessCallback = (nonHandoffBusinessCall && !isSalesBusinessCall(session.turns))
+                || complexSupportCallbackRequired;
             const result = handleRealtimeToolCalls({
                 event,
                 state: session,
@@ -1041,13 +1047,13 @@ fastify.register(async (fastify) => {
                 handoffConfig: {
                     ...HANDOFF_CONFIG,
                     blockNonHandoffBusiness: nonHandoffBusinessCall,
-                    requireCallbackContact: nonHandoffBusinessCall,
+                    requireCallbackContact: nonHandoffBusinessCall || complexSupportCallbackRequired,
                     requireBusinessCallback,
                     enforceRoutingPolicy: true
                 },
                 allowComplexComplaintHandoff: activeRealtimeModel === COMPLEX_REALTIME_MODEL
                     || session.modelEscalation?.status === 'active'
-                    && session.modelEscalation?.category === 'complaint',
+                    && ['complaint', 'complex_support'].includes(session.modelEscalation?.category),
                 onPhoneValidation: (metadata) => auditLog('callback_phone.validation', {
                     actor: 'realtime',
                     target: session.callSid || sessionId,
@@ -1328,6 +1334,7 @@ fastify.register(async (fastify) => {
                         if (
                             HANDOFF_CONFIG.enabled
                             && urgentHumanSupport
+                            && !isEmergencyCall(session.turns)
                             && !session.handoff?.started
                             && !session.handoff?.starting
                             && !isNonHandoffBusinessCall(session.turns)
