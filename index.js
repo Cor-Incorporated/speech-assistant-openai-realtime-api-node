@@ -83,7 +83,7 @@ const DEFAULT_SYSTEM_MESSAGE = [
 const {
     OPENAI_API_KEY,
     PORT = 5050,
-    REALTIME_MODEL = 'gpt-realtime-2',
+    REALTIME_MODEL = 'gpt-realtime-2.1',
     REALTIME_REASONING_EFFORT = 'low',
     TRANSCRIPTION_MODEL = 'gpt-4o-transcribe',
     EXTRACTION_MODEL = 'gpt-5.4-mini',
