@@ -206,3 +206,21 @@ test('Realtime tool flow blocks human transfer for non-handoff business calls', 
     assert.equal(output.reason, 'non_handoff_business_call');
     assert.match(output.instruction, /必要があれば担当者から折り返す/);
 });
+
+test('Realtime tool flow requires a contact number before closing a business call', () => {
+    const result = handleRealtimeToolCalls({
+        event: toolEvent('finish_reception', 'finish_sales_1', {
+            reason: '営業提案の報告完了',
+            callback_required: false
+        }),
+        state: {},
+        callEndConfig: buildCallEndConfig(),
+        handoffConfig: { requireCallbackContact: true }
+    });
+    const output = JSON.parse(result.outputs[0].item.output);
+
+    assert.equal(result.handled, true);
+    assert.equal(output.ok, false);
+    assert.equal(output.reason, 'business_callback_contact_not_validated');
+    assert.deepEqual(result.callEndRequests, []);
+});
