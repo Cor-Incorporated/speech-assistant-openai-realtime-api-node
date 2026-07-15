@@ -6,6 +6,7 @@ import {
     buildTransferToHumanTool,
     findTransferToHumanToolCalls,
     HandoffContextStore,
+    shouldAutoHandoffGeneral,
     summarizeHandoffTurns,
     updateTwilioCallTwiml
 } from '../lib/handoff.js';
@@ -69,6 +70,18 @@ test('handoff summary uses recent turns and caps its length', () => {
     assert.match(summary, /発信者/);
     assert.match(summary, /担当者に相談したいです/);
     assert.ok(summary.length < 700);
+});
+
+test('handoff auto-detects billing disputes and representative requests', () => {
+    assert.equal(shouldAutoHandoffGeneral([
+        { role: 'user', text: '以前の取引について、支払った料金が足りなかったので相談したいです。' }
+    ]), true);
+    assert.equal(shouldAutoHandoffGeneral([
+        { role: 'user', text: '代表の方に直接相談したいです。' }
+    ]), true);
+    assert.equal(shouldAutoHandoffGeneral([
+        { role: 'user', text: '採用について質問があります。' }
+    ]), false);
 });
 
 test('Twilio call update sends TwiML with basic authentication', async () => {

@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
+    appendPhoneDigitFragments,
     appendCallbackPhoneValidationInstructions,
     buildValidateCallbackPhoneTool,
     extractJapanesePhoneCandidates,
+    extractPhoneDigits,
     formatSpokenPhoneDigits,
     findValidateCallbackPhoneToolCalls,
+    recoverRepeatedJapaneseCallbackPhoneNumber,
     validateJapaneseCallbackPhoneNumber
 } from '../lib/phone-number-validation.js';
 
@@ -73,6 +76,16 @@ test('callback phone validation rejects suspicious or over-expanded numbers', ()
     assert.equal(repeated.reason, 'suspicious_model_expanded_number');
 });
 
+test('callback phone helpers recover repeated model arguments and merge overlapping fragments', () => {
+    const recovered = recoverRepeatedJapaneseCallbackPhoneNumber('0901234567809012345678');
+
+    assert.equal(recovered.valid, true);
+    assert.equal(recovered.normalizedPhoneNumber, '09012345678');
+    assert.equal(appendPhoneDigitFragments('090', '0901234'), '0901234');
+    assert.equal(appendPhoneDigitFragments('0901234', '12345678'), '09012345678');
+    assert.equal(extractPhoneDigits('０９０ー１２３４ー５６７８'), '09012345678');
+});
+
 test('callback phone validation asks for clarification when multiple phone numbers are heard', () => {
     const result = validateJapaneseCallbackPhoneNumber('090-1234-5678 または 080-1111-2222');
 
@@ -96,6 +109,7 @@ test('callback phone validation exposes Realtime tool schema and instructions', 
     assert.equal(tool.name, 'validate_callback_phone');
     assert.deepEqual(tool.parameters.required, ['heard_phone_number']);
     assert.match(instructions, /validate_callback_phone/);
+    assert.match(instructions, /直前に話した電話番号/);
     assert.match(instructions, /補完してはいけません/);
 });
 
