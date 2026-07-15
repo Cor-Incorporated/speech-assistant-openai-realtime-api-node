@@ -225,6 +225,54 @@ test('Realtime tool flow requires a contact number before closing a business cal
     assert.deepEqual(result.callEndRequests, []);
 });
 
+test('Realtime tool flow requires callback_required for non-sales non-urgent business calls', () => {
+    const result = handleRealtimeToolCalls({
+        event: toolEvent('finish_reception', 'finish_event_1', {
+            reason: 'イベント相談の受付完了',
+            callback_required: false
+        }),
+        state: {
+            callbackPhone: {
+                valid: true,
+                normalizedPhoneNumber: '09012345678'
+            }
+        },
+        callEndConfig: buildCallEndConfig(),
+        handoffConfig: {
+            requireCallbackContact: true,
+            requireBusinessCallback: true
+        }
+    });
+    const output = JSON.parse(result.outputs[0].item.output);
+
+    assert.equal(result.handled, true);
+    assert.equal(output.ok, false);
+    assert.equal(output.reason, 'business_callback_required');
+    assert.deepEqual(result.callEndRequests, []);
+});
+
+test('Realtime tool flow allows sales call without callback when contact is validated', () => {
+    const result = handleRealtimeToolCalls({
+        event: toolEvent('finish_reception', 'finish_sales_2', {
+            reason: '営業提案の報告完了',
+            callback_required: false
+        }),
+        state: {
+            callbackPhone: {
+                valid: true,
+                normalizedPhoneNumber: '09012345678'
+            }
+        },
+        callEndConfig: buildCallEndConfig(),
+        handoffConfig: { requireCallbackContact: true }
+    });
+    const output = JSON.parse(result.outputs[0].item.output);
+
+    assert.equal(output.ok, true);
+    assert.equal(output.callback_required, false);
+    assert.equal(result.callEndRequests.length, 1);
+});
+
 test('Realtime tool flow blocks non-urgent general handoff', () => {
     const result = handleRealtimeToolCalls({
         event: toolEvent('transfer_to_human', 'handoff_event_1', {

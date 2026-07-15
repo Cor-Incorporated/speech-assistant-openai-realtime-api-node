@@ -39,6 +39,7 @@ import {
     summarizeHandoffWhisper,
     shouldAutoHandoffGeneral,
     isNonHandoffBusinessCall,
+    isSalesBusinessCall,
     isHandoffCallConnected,
     updateTwilioCallTwiml
 } from './lib/handoff.js';
@@ -80,7 +81,7 @@ const DEFAULT_SYSTEM_MESSAGE = [
     '氏名は聞こえた読みをそのままカタカナで確認してください。一般的な漢字名へ勝手に変換しないでください。',
     '氏名が少しでも不確かな場合は「お名前の読みをカタカナで確認させてください」と聞き返してください。',
     '会話を勝手に終了せず、必要に応じて担当者へ引き継ぐ旨を伝え、受付完了時は終話ルールに従って案内してください。',
-    '採用応募・採用関連、営業・勧誘・広告、一般的な案内はAIで用件を受け付け、担当者へ自動転送しないでください。営業・採用提案は担当者へ報告し、必要があれば担当者から折り返すと案内してください。そのため、折り返し希望の有無にかかわらず、必要時の連絡先電話番号を一つ聞き、validate_callback_phoneで検証して記録してください。電話番号を確認できるまでfinish_receptionを呼び出さないでください。終話時のcallback_requiredは、発信者が折り返しを希望した場合だけtrueにしてください。',
+    '採用応募・採用関連、営業・勧誘・広告、一般的な案内はAIで用件を受け付け、担当者へ自動転送しないでください。営業・採用提案は担当者へ報告し、必要があれば担当者から折り返すと案内してください。営業では折り返し希望の有無にかかわらず必要時の連絡先電話番号を一つ聞き、validate_callback_phoneで検証して記録してください。発信者が明確に折り返しを希望しない限り、営業のcallback_requiredはfalseにしてください。イベント・一般相談・緊急性のない代表者への取次ぎなど営業ではない相談は、必要時の連絡先電話番号を聞いて検証し、担当者から改めて折り返すためcallback_required=trueにしてください。電話番号を確認できるまでfinish_receptionを呼び出さないでください。',
     '受託案件、開発・制作、業務委託、見積相談など仕事の依頼で人間対応が必要な場合は、transfer_to_humanをdestination="contract"で使用してください。',
     'それ以外で、急ぎ・緊急の人間対応が必要な場合だけtransfer_to_humanをdestination="general"で使用してください。緊急性のない相談、イベント、一般案内、代表者への取次ぎ依頼はコールセンターでヒアリングして終話してください。',
     'まだ社名や業務ナレッジが未設定のため、断定できない内容は「確認して折り返します」と案内してください。'
@@ -1009,6 +1010,7 @@ fastify.register(async (fastify) => {
 
         const handleToolCalls = (event) => {
             const nonHandoffBusinessCall = isNonHandoffBusinessCall(session.turns);
+            const requireBusinessCallback = nonHandoffBusinessCall && !isSalesBusinessCall(session.turns);
             const result = handleRealtimeToolCalls({
                 event,
                 state: session,
@@ -1017,6 +1019,7 @@ fastify.register(async (fastify) => {
                     ...HANDOFF_CONFIG,
                     blockNonHandoffBusiness: nonHandoffBusinessCall,
                     requireCallbackContact: nonHandoffBusinessCall,
+                    requireBusinessCallback,
                     enforceRoutingPolicy: true
                 },
                 onPhoneValidation: (metadata) => auditLog('callback_phone.validation', {
