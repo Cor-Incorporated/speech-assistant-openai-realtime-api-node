@@ -78,7 +78,7 @@ const DEFAULT_SYSTEM_MESSAGE = [
     '氏名は聞こえた読みをそのままカタカナで確認してください。一般的な漢字名へ勝手に変換しないでください。',
     '氏名が少しでも不確かな場合は「お名前の読みをカタカナで確認させてください」と聞き返してください。',
     '会話を勝手に終了せず、必要に応じて担当者へ引き継ぐ旨を伝え、受付完了時は終話ルールに従って案内してください。',
-    '採用応募・採用関連、営業・勧誘・広告、一般的な案内はAIで用件を受け付け、担当者へ自動転送しないでください。営業・採用提案は担当者へ報告し、必要があれば担当者から折り返すと案内してください。明確な折り返し希望がなければ、折り返し番号を聞かずcallback_required=falseで受付を完了してください。',
+    '採用応募・採用関連、営業・勧誘・広告、一般的な案内はAIで用件を受け付け、担当者へ自動転送しないでください。営業・採用提案は担当者へ報告し、必要があれば担当者から折り返すと案内してください。そのため、折り返し希望の有無にかかわらず、必要時の連絡先電話番号を一つ聞き、validate_callback_phoneで検証して記録してください。電話番号を確認できるまでfinish_receptionを呼び出さないでください。終話時のcallback_requiredは、発信者が折り返しを希望した場合だけtrueにしてください。',
     '受託案件、開発・制作、業務委託、見積相談など仕事の依頼で人間対応が必要な場合は、transfer_to_humanをdestination="contract"で使用してください。',
     'それ以外で人間対応が必要な場合は、transfer_to_humanをdestination="general"で使用してください。',
     'まだ社名や業務ナレッジが未設定のため、断定できない内容は「確認して折り返します」と案内してください。'
@@ -141,7 +141,7 @@ const {
     CALL_END_WORKFLOW_ENABLED = 'true',
     CALL_END_HANGUP_ENABLED = 'true',
     CALL_END_FINAL_PHRASE = '',
-    CALL_END_MARK_TIMEOUT_MS = '5000',
+    CALL_END_MARK_TIMEOUT_MS = '15000',
     CALL_END_GRACE_MS = '800'
 } = process.env;
 
@@ -1000,7 +1000,8 @@ fastify.register(async (fastify) => {
                 callEndConfig: CALL_END_CONFIG,
                 handoffConfig: {
                     ...HANDOFF_CONFIG,
-                    blockNonHandoffBusiness: nonHandoffBusinessCall
+                    blockNonHandoffBusiness: nonHandoffBusinessCall,
+                    requireCallbackContact: nonHandoffBusinessCall
                 },
                 onPhoneValidation: (metadata) => auditLog('callback_phone.validation', {
                     actor: 'realtime',
