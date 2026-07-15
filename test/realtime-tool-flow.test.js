@@ -95,3 +95,18 @@ test('Realtime tool flow allows finish_reception after callback phone validation
         reason: '折り返し受付完了'
     }]);
 });
+
+test('Realtime tool flow emits a handoff request only when enabled with recipients', () => {
+    const result = handleRealtimeToolCalls({
+        event: toolEvent('transfer_to_human', 'handoff_1', { reason: '人間対応の希望' }),
+        state: {},
+        callEndConfig: buildCallEndConfig(),
+        handoffConfig: { enabled: true, numbers: ['+819012345678'] }
+    });
+    const output = JSON.parse(result.outputs[0].item.output);
+
+    assert.equal(result.handled, true);
+    assert.equal(result.responseReason, 'transfer_to_human_tool_output');
+    assert.deepEqual(result.handoffRequests, [{ callId: 'handoff_1', reason: '人間対応の希望' }]);
+    assert.equal(output.status, 'starting');
+});

@@ -30,6 +30,24 @@ import {
     updateTwilioCallStatus
 } from './lib/realtime-call-end.js';
 import { handleRealtimeToolCalls } from './lib/realtime-tool-flow.js';
+import {
+    appendHandoffInstructions,
+    buildHandoffConfig,
+    buildTransferToHumanTool,
+    HandoffContextStore,
+    summarizeHandoffTurns,
+    updateTwilioCallTwiml
+} from './lib/handoff.js';
+import { NotificationOutbox } from './lib/notification-outbox.js';
+import {
+    buildDialStatusTwiml,
+    buildDtmfGatewayTwiml,
+    buildGatewayRouteTwiml,
+    buildHandoffDialTwiml,
+    buildMediaStreamTwimlWithParams,
+    buildWhisperConfirmTwiml,
+    buildWhisperTwiml
+} from './lib/twiml.js';
 import { RuntimeSettingsStore } from './lib/runtime-settings-store.js';
 import { getRuntimeConfig } from './lib/runtime-config.js';
 import {
@@ -87,6 +105,15 @@ const {
     TWILIO_AUTH_TOKEN = '',
     TWILIO_SIGNATURE_VALIDATION_ENABLED = 'false',
     TWILIO_WEBHOOK_URL = '',
+    TWILIO_PUBLIC_BASE_URL = '',
+    DTMF_GATEWAY_ENABLED = 'false',
+    PRACTICE_SYSTEM_REDIRECT_URL = '',
+    DTMF_GATEWAY_TIMEOUT_S = '2',
+    HANDOFF_ENABLED = 'false',
+    HANDOFF_NUMBERS = '',
+    HANDOFF_DIAL_TIMEOUT_S = '20',
+    HANDOFF_WHISPER_ACCEPT_DIGIT = '1',
+    HANDOFF_CALLER_ID = '',
     GOOGLE_CLOUD_PROJECT = '',
     CALL_LOG_FIRESTORE_ENABLED = 'false',
     CALL_LOG_FIRESTORE_DATABASE_ID = '',
@@ -95,6 +122,11 @@ const {
     CALL_LOG_SUPPRESS_SMOKE_LOGS = 'true',
     GOOGLE_SHEETS_SPREADSHEET_ID = '',
     GOOGLE_SHEETS_RANGE = '',
+    NOTIFY_EMAIL_ENABLED = 'false',
+    NOTIFY_EMAIL_TO = '',
+    NOTIFY_EMAIL_CC = '',
+    NOTIFY_EMAIL_FROM = '',
+    RESEND_API_KEY = '',
     SYSTEM_MESSAGE = DEFAULT_SYSTEM_MESSAGE,
     SYSTEM_MESSAGE_FILE = '',
     FIRST_MESSAGE = 'お電話ありがとうございます。AI受付です。どのようなご用件でしょうか。',
@@ -142,6 +174,18 @@ const SHOULD_LOG_REALTIME_EVENTS = LOG_REALTIME_EVENTS === 'true';
 const SHOULD_RUN_EXTRACTION = EXTRACTION_ENABLED === 'true';
 const SHOULD_LOG_OPENAI_RESPONSES = LOG_OPENAI_RESPONSES === 'true';
 const SHOULD_VALIDATE_TWILIO_SIGNATURE = shouldValidateTwilioSignature(TWILIO_SIGNATURE_VALIDATION_ENABLED);
+const DTMF_GATEWAY_CONFIG = {
+    enabled: DTMF_GATEWAY_ENABLED === 'true',
+    practiceRedirectUrl: String(PRACTICE_SYSTEM_REDIRECT_URL || '').trim(),
+    timeoutSeconds: Math.min(Math.max(Number(DTMF_GATEWAY_TIMEOUT_S) || 2, 1), 10)
+};
+const HANDOFF_CONFIG = buildHandoffConfig({
+    HANDOFF_ENABLED,
+    HANDOFF_NUMBERS,
+    HANDOFF_DIAL_TIMEOUT_S,
+    HANDOFF_WHISPER_ACCEPT_DIGIT,
+    HANDOFF_CALLER_ID
+});
 const CALL_END_CONFIG = buildCallEndConfig({
     CALL_END_WORKFLOW_ENABLED,
     CALL_END_HANGUP_ENABLED,
@@ -150,11 +194,15 @@ const CALL_END_CONFIG = buildCallEndConfig({
     CALL_END_GRACE_MS
 });
 const RESOLVED_SYSTEM_MESSAGE = appendCallEndInstructions(
-    appendCallbackPhoneValidationInstructions(resolveSystemMessage()),
+    appendHandoffInstructions(
+        appendCallbackPhoneValidationInstructions(resolveSystemMessage()),
+        HANDOFF_CONFIG
+    ),
     CALL_END_CONFIG
 );
 const FINISH_RECEPTION_TOOL = buildFinishReceptionTool(CALL_END_CONFIG);
 const VALIDATE_CALLBACK_PHONE_TOOL = buildValidateCallbackPhoneTool();
+const TRANSFER_TO_HUMAN_TOOL = buildTransferToHumanTool(HANDOFF_CONFIG);
 const REALTIME_INPUT_GATE_CONFIG = buildRealtimeInputGateConfig({
     REALTIME_INPUT_GATE_ENABLED,
     REALTIME_INPUT_GATE_MIN_JAPANESE_CHARS,
@@ -181,6 +229,21 @@ const callLogStore = new CallLogStore({
     googleProjectId: GOOGLE_CLOUD_PROJECT
 });
 const runtimeSettingsStore = new RuntimeSettingsStore({
+    firestoreEnabled: CALL_LOG_FIRESTORE_ENABLED,
+    firestoreDatabaseId: CALL_LOG_FIRESTORE_DATABASE_ID,
+    googleProjectId: GOOGLE_CLOUD_PROJECT
+});
+const handoffContextStore = new HandoffContextStore({
+    firestoreEnabled: CALL_LOG_FIRESTORE_ENABLED,
+    firestoreDatabaseId: CALL_LOG_FIRESTORE_DATABASE_ID,
+    googleProjectId: GOOGLE_CLOUD_PROJECT
+});
+const notificationOutbox = new NotificationOutbox({
+    enabled: NOTIFY_EMAIL_ENABLED,
+    apiKey: RESEND_API_KEY,
+    to: NOTIFY_EMAIL_TO,
+    cc: NOTIFY_EMAIL_CC,
+    from: NOTIFY_EMAIL_FROM,
     firestoreEnabled: CALL_LOG_FIRESTORE_ENABLED,
     firestoreDatabaseId: CALL_LOG_FIRESTORE_DATABASE_ID,
     googleProjectId: GOOGLE_CLOUD_PROJECT
@@ -232,6 +295,23 @@ fastify.register(registerAdminRoutes, {
     auditLog
 });
 
+fastify.post('/api/admin/notifications/retry/:outboxId', {
+    preHandler: requireAdminAppAuth
+}, async (request, reply) => {
+    if (!notificationOutbox.isEnabled()) {
+        return reply.code(503).send({ error: 'notification_outbox_disabled' });
+    }
+
+    const result = await notificationOutbox.retry(request.params.outboxId);
+    auditLog('admin.notification.retry', {
+        actor: request.adminAuth?.actor || 'admin',
+        target: request.params.outboxId,
+        result: result.ok ? 'success' : 'failure',
+        metadata: { status: result.status || '', reason: result.reason || '' }
+    });
+    return reply.code(result.ok ? 200 : 502).send(result);
+});
+
 if (existsSync(ADMIN_APP_INDEX_PATH)) {
     const assetsDir = join(ADMIN_APP_DIST_DIR, 'assets');
     if (existsSync(assetsDir)) {
@@ -242,12 +322,30 @@ if (existsSync(ADMIN_APP_INDEX_PATH)) {
     }
 }
 
-const escapeXml = (value = '') => String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&apos;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');
+const getPublicBaseUrl = (request) => {
+    if (TWILIO_PUBLIC_BASE_URL) return TWILIO_PUBLIC_BASE_URL.replace(/\/$/, '');
+    const proto = request.headers['x-forwarded-proto'] || request.protocol || 'https';
+    const host = request.headers['x-forwarded-host'] || request.headers.host;
+    return `${proto}://${host}`.replace(/\/$/, '');
+};
+
+const getPublicUrl = (request, path) => {
+    const normalizedPath = String(path || '').startsWith('/') ? String(path) : `/${path}`;
+    return `${getPublicBaseUrl(request)}${normalizedPath}`;
+};
+
+const isValidTwilioWebhook = ({ request, configuredUrl = '' } = {}) => {
+    if (!SHOULD_VALIDATE_TWILIO_SIGNATURE) return true;
+
+    return validateTwilioSignature({
+        authToken: TWILIO_AUTH_TOKEN,
+        signature: request.headers['x-twilio-signature'],
+        url: configuredUrl || getPublicUrl(request, request.raw.url || request.url),
+        params: request.body || {}
+    });
+};
+
+const sendTwiml = (reply, body) => reply.type('text/xml').send(body);
 
 const summarizeExtractionForLog = (extracted = {}) => ({
     callbackRequired: Boolean(extracted.callbackRequired),
@@ -316,6 +414,7 @@ const buildRealtimeSessionConfig = ({
 
     session.tools = [
         VALIDATE_CALLBACK_PHONE_TOOL,
+        ...(TRANSFER_TO_HUMAN_TOOL ? [TRANSFER_TO_HUMAN_TOOL] : []),
         ...(FINISH_RECEPTION_TOOL ? [FINISH_RECEPTION_TOOL] : [])
     ];
     if (session.tools.length > 0) {
@@ -380,29 +479,21 @@ fastify.get('/app/*', async (request, reply) => {
 
 // Twilioが着信を処理するルート
 fastify.all('/incoming-call', async (request, reply) => {
-    const signature = request.headers['x-twilio-signature'];
-    const webhookUrl = getTwilioWebhookUrl(request, TWILIO_WEBHOOK_URL);
     const callSid = request.body?.CallSid || '';
-    const from = escapeXml(request.body?.From || '');
-    const to = escapeXml(request.body?.To || '');
+    const from = request.body?.From || '';
+    const to = request.body?.To || '';
 
-    if (SHOULD_VALIDATE_TWILIO_SIGNATURE) {
-        const isValid = validateTwilioSignature({
-            authToken: TWILIO_AUTH_TOKEN,
-            signature,
-            url: webhookUrl,
-            params: request.body || {}
+    if (!isValidTwilioWebhook({
+        request,
+        configuredUrl: getTwilioWebhookUrl(request, TWILIO_WEBHOOK_URL)
+    })) {
+        auditLog('twilio.webhook.rejected', {
+            actor: 'twilio',
+            target: callSid || 'incoming-call',
+            result: 'failure',
+            metadata: { reason: 'invalid_signature', hasSignature: Boolean(request.headers['x-twilio-signature']) }
         });
-
-        if (!isValid) {
-            auditLog('twilio.webhook.rejected', {
-                actor: 'twilio',
-                target: callSid || 'incoming-call',
-                result: 'failure',
-                metadata: { reason: 'invalid_signature', hasSignature: Boolean(signature) }
-            });
-            return reply.code(403).send('Forbidden');
-        }
+        return reply.code(403).send('Forbidden');
     }
 
     auditLog('twilio.webhook.accepted', {
@@ -415,17 +506,144 @@ fastify.all('/incoming-call', async (request, reply) => {
         }
     });
 
-    const twimlResponse = `<?xml version="1.0" encoding="UTF-8"?>
-                              <Response>
-                                  <Connect>
-                                      <Stream url="wss://${request.headers.host}/media-stream">
-                                          <Parameter name="from" value="${from}" />
-                                          <Parameter name="to" value="${to}" />
-                                      </Stream>
-                                  </Connect>
-                              </Response>`;
+    const mediaStreamTwiml = buildMediaStreamTwimlWithParams({
+        host: request.headers.host,
+        from,
+        to
+    });
+    const twimlResponse = DTMF_GATEWAY_CONFIG.enabled
+        ? buildDtmfGatewayTwiml({
+            actionUrl: getPublicUrl(request, '/gateway/route'),
+            fallbackUrl: getPublicUrl(request, '/gateway/route?digits=none'),
+            timeoutSeconds: DTMF_GATEWAY_CONFIG.timeoutSeconds
+        })
+        : mediaStreamTwiml;
 
-    reply.type('text/xml').send(twimlResponse);
+    return sendTwiml(reply, twimlResponse);
+});
+
+fastify.all('/gateway/route', async (request, reply) => {
+    const callSid = request.body?.CallSid || request.query?.CallSid || 'gateway-route';
+    if (!isValidTwilioWebhook({ request })) {
+        auditLog('twilio.webhook.rejected', {
+            actor: 'twilio',
+            target: callSid,
+            result: 'failure',
+            metadata: { endpoint: '/gateway/route', reason: 'invalid_signature' }
+        });
+        return reply.code(403).send('Forbidden');
+    }
+
+    const fallbackTwiml = buildMediaStreamTwimlWithParams({
+        host: request.headers.host,
+        from: request.body?.From || '',
+        to: request.body?.To || ''
+    });
+    const digits = request.body?.Digits || request.query?.digits || 'none';
+    const twimlResponse = buildGatewayRouteTwiml({
+        digits,
+        practiceRedirectUrl: DTMF_GATEWAY_CONFIG.practiceRedirectUrl,
+        fallbackTwiml
+    });
+
+    auditLog('twilio.gateway.routed', {
+        actor: 'twilio',
+        target: callSid,
+        metadata: {
+            digits: String(digits) === '5' ? '5' : 'other',
+            practiceConfigured: Boolean(DTMF_GATEWAY_CONFIG.practiceRedirectUrl),
+            signatureValidation: SHOULD_VALIDATE_TWILIO_SIGNATURE
+        }
+    });
+    return sendTwiml(reply, twimlResponse);
+});
+
+fastify.post('/handoff/whisper', async (request, reply) => {
+    const callSid = request.query?.call_sid || request.body?.CallSid || '';
+    if (!HANDOFF_CONFIG.enabled) return reply.code(404).send({ error: 'handoff_disabled' });
+    if (!isValidTwilioWebhook({ request })) return reply.code(403).send('Forbidden');
+
+    const context = await handoffContextStore.get(callSid);
+    const summary = context?.summary || '受付内容の確認';
+    await handoffContextStore.update(callSid, { status: 'whisper_started' });
+    auditLog('handoff.whisper.started', {
+        actor: 'twilio',
+        target: callSid,
+        metadata: { hasSummary: Boolean(context?.summary) }
+    });
+
+    return sendTwiml(reply, buildWhisperTwiml({
+        summary,
+        acceptDigit: HANDOFF_CONFIG.whisperAcceptDigit,
+        confirmUrl: getPublicUrl(request, `/handoff/whisper-confirm?call_sid=${encodeURIComponent(callSid)}`)
+    }));
+});
+
+fastify.post('/handoff/whisper-confirm', async (request, reply) => {
+    const callSid = request.query?.call_sid || request.body?.CallSid || '';
+    if (!HANDOFF_CONFIG.enabled) return reply.code(404).send({ error: 'handoff_disabled' });
+    if (!isValidTwilioWebhook({ request })) return reply.code(403).send('Forbidden');
+
+    const accepted = String(request.body?.Digits || '') === HANDOFF_CONFIG.whisperAcceptDigit;
+    await handoffContextStore.update(callSid, {
+        status: accepted ? 'whisper_accepted' : 'whisper_rejected',
+        whisperAccepted: accepted
+    });
+    auditLog('handoff.whisper.completed', {
+        actor: 'twilio',
+        target: callSid,
+        metadata: { accepted }
+    });
+    return sendTwiml(reply, buildWhisperConfirmTwiml({ accepted }));
+});
+
+fastify.post('/handoff/leg-status', async (request, reply) => {
+    const callSid = request.query?.call_sid || request.body?.CallSid || '';
+    if (!HANDOFF_CONFIG.enabled) return reply.code(404).send({ error: 'handoff_disabled' });
+    if (!isValidTwilioWebhook({ request })) return reply.code(403).send('Forbidden');
+
+    auditLog('handoff.leg.status', {
+        actor: 'twilio',
+        target: callSid,
+        metadata: {
+            callStatus: request.body?.CallStatus || '',
+            dialCallStatus: request.body?.DialCallStatus || '',
+            duration: request.body?.DialCallDuration || ''
+        }
+    });
+    return reply.code(204).send();
+});
+
+fastify.post('/handoff/dial-status', async (request, reply) => {
+    const callSid = request.query?.call_sid || request.body?.CallSid || '';
+    if (!HANDOFF_CONFIG.enabled) return reply.code(404).send({ error: 'handoff_disabled' });
+    if (!isValidTwilioWebhook({ request })) return reply.code(403).send('Forbidden');
+
+    const connected = request.body?.DialCallStatus === 'completed';
+    if (!connected) {
+        const context = await handoffContextStore.get(callSid);
+        const text = [
+            '担当者への転送が成立しませんでした。',
+            context?.summary ? `受付内容: ${context.summary}` : '受付内容は管理画面で確認してください。',
+            '発信者へ折り返し連絡をお願いします。'
+        ].join('\n');
+        await notificationOutbox.enqueue({
+            kind: 'handoff-fallback',
+            callId: callSid,
+            subject: `【電話受付】担当者不応答 ${callSid}`,
+            text
+        });
+        await handoffContextStore.update(callSid, { status: 'fallback_notified', dialCallStatus: request.body?.DialCallStatus || '' });
+    } else {
+        await handoffContextStore.update(callSid, { status: 'connected', dialCallStatus: 'completed' });
+    }
+
+    auditLog('handoff.dial.completed', {
+        actor: 'twilio',
+        target: callSid,
+        metadata: { dialCallStatus: request.body?.DialCallStatus || '', connected }
+    });
+    return sendTwiml(reply, buildDialStatusTwiml({ connected }));
 });
 
 // メディアストリーム用のWebSocketルート
@@ -570,11 +788,85 @@ fastify.register(async (fastify) => {
             }, CALL_END_CONFIG.markTimeoutMs);
         };
 
+        const startHandoff = async ({ reason } = {}) => {
+            if (session.handoff?.started) return;
+
+            const callSid = session.callSid || session.id;
+            const summary = summarizeHandoffTurns(session.turns);
+            const context = {
+                reason: reason || '担当者対応が必要',
+                summary: summary || '受付内容を管理画面で確認してください。',
+                from: maskPhone(session.from),
+                to: maskPhone(session.to),
+                status: 'requested',
+                createdAt: new Date().toISOString()
+            };
+
+            try {
+                await handoffContextStore.save(callSid, context);
+                const twiml = buildHandoffDialTwiml({
+                    callSid,
+                    numbers: HANDOFF_CONFIG.numbers,
+                    callerId: HANDOFF_CONFIG.callerId || session.to,
+                    timeoutSeconds: HANDOFF_CONFIG.dialTimeoutSeconds,
+                    whisperUrl: getPublicUrl(req, '/handoff/whisper'),
+                    dialStatusUrl: getPublicUrl(req, `/handoff/dial-status?call_sid=${encodeURIComponent(callSid)}`),
+                    legStatusUrl: getPublicUrl(req, `/handoff/leg-status?call_sid=${encodeURIComponent(callSid)}`)
+                });
+                const result = await updateTwilioCallTwiml({
+                    accountSid: session.accountSid,
+                    callSid,
+                    authToken: TWILIO_AUTH_TOKEN,
+                    twiml
+                });
+
+                if (!result.ok) {
+                    session.handoff = { started: false, failed: true, reason: result.reason || 'twilio_update_failed' };
+                    auditLog('handoff.start.failed', {
+                        actor: 'system',
+                        target: callSid,
+                        result: 'failure',
+                        metadata: { reason: result.reason || 'twilio_update_failed', statusCode: result.statusCode || '' }
+                    });
+                    sendRealtimeResponseCreate('handoff_failed');
+                    return;
+                }
+
+                session.handoff = {
+                    started: true,
+                    reason: context.reason,
+                    startedAt: new Date().toISOString()
+                };
+                auditLog('handoff.start.succeeded', {
+                    actor: 'system',
+                    target: callSid,
+                    metadata: {
+                        from: context.from,
+                        to: context.to,
+                        recipientCount: HANDOFF_CONFIG.numbers.length
+                    }
+                });
+                if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
+                if (connection.readyState === WebSocket.OPEN) connection.close(1000, 'handoff_started');
+            } catch (error) {
+                session.handoff = { started: false, failed: true, reason: 'handoff_exception' };
+                auditLog('handoff.start.failed', {
+                    actor: 'system',
+                    target: callSid,
+                    result: 'failure',
+                    metadata: { reason: 'handoff_exception' }
+                });
+                console.error(`Failed to start handoff: ${error.message}`);
+                sendRealtimeResponseCreate('handoff_exception');
+            }
+        };
+
         const handleToolCalls = (event) => {
             const result = handleRealtimeToolCalls({
                 event,
                 state: session,
-                callEndConfig: CALL_END_CONFIG
+                callEndConfig: CALL_END_CONFIG,
+                handoffConfig: HANDOFF_CONFIG
             });
             if (!result.handled) return false;
 
@@ -583,6 +875,10 @@ fastify.register(async (fastify) => {
             }
             for (const callEndRequest of result.callEndRequests) {
                 requestCallEnd(callEndRequest);
+            }
+            if (result.handoffRequests.length > 0) {
+                void startHandoff(result.handoffRequests[0]);
+                return true;
             }
             sendRealtimeResponseCreate(result.responseReason);
             return true;
@@ -803,6 +1099,21 @@ fastify.register(async (fastify) => {
                 : await processTranscriptAndSend(session.transcript, session.callSid || sessionId);
             const record = buildCallLogRecord(session, extraction);
             await callLogSinks.recordCompleted(record);
+            await notificationOutbox.enqueue({
+                kind: 'call-summary',
+                callId: record.callSid,
+                subject: `【電話受付】${record.intent || '新しい通話受付'} ${record.callSid}`,
+                text: [
+                    `通話ID: ${record.callSid}`,
+                    `開始: ${record.startedAtJst || record.startedAt}`,
+                    `通話秒数: ${record.durationSeconds}`,
+                    `用件: ${record.intent || '未抽出'}`,
+                    `要約: ${record.summary || '未抽出'}`,
+                    `顧客名: ${record.customerName || '未確認'}`,
+                    `折り返し番号: ${record.customerPhoneNumber || '未確認'}`,
+                    `折り返し要否: ${record.callbackRequired ? '要' : '不要'}`
+                ].join('\n')
+            });
             auditLog('call.completed', {
                 actor: 'twilio',
                 target: session.callSid || sessionId,
