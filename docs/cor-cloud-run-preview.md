@@ -1,5 +1,16 @@
 # Cor. Cloud Run Preview URL
 
+## Migration Status (2026-07-15)
+
+[ADR-0005](./adr/0005-gcp-project-migration-cor-jp-web.md) により、本サービスは `cor-jp-web` プロジェクトへの段階移行が決定済み（runbook: [gcp-migration-cor-jp-web.md](./gcp-migration-cor-jp-web.md)、Wave A1/A2）。
+
+| 環境 | GCPプロジェクト | 状態 | URL |
+| --- | --- | --- | --- |
+| 現行 | `aipartner-426616` | 稼働中（下記参照） | 下記 Exact URLs の通り |
+| 移行先 | `cor-jp-web` | 未構築 | `<未発行: Wave A1でデプロイ後に記入>` |
+
+**注意**: 移行先URLはデプロイ前に推測で記入しない。Wave A2完了時に本docと `Readme.md` の実URLを更新する。
+
 ## Current Deployment
 
 This repository is deployed by Cor.株式会社 to the following Google Cloud Run service.
