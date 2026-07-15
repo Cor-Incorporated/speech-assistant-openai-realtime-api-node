@@ -87,12 +87,12 @@ const DEFAULT_SYSTEM_MESSAGE = [
 const {
     OPENAI_API_KEY,
     PORT = 5050,
-    REALTIME_MODEL = 'gpt-realtime-2.1',
+    REALTIME_MODEL = 'gpt-realtime-2.1-mini',
     REALTIME_REASONING_EFFORT = 'low',
     TRANSCRIPTION_MODEL = 'gpt-4o-transcribe',
     EXTRACTION_MODEL = 'gpt-5.4-mini',
     EXTRACTION_ENABLED = 'false',
-    VOICE = 'marin',
+    VOICE = 'coral',
     AUDIO_FORMAT = 'audio/pcmu',
     AUDIO_NOISE_REDUCTION = 'near_field',
     VAD_TYPE = 'server_vad',
@@ -397,12 +397,25 @@ const buildTurnDetectionConfig = () => {
 
 const buildRealtimeSessionConfig = ({
     realtimeModel = REALTIME_MODEL,
-    realtimeReasoningEffort = REALTIME_REASONING_EFFORT
+    realtimeReasoningEffort = REALTIME_REASONING_EFFORT,
+    handoffFallback = false,
+    handoffSummary = ''
 } = {}) => {
+    const fallbackInstructions = handoffFallback
+        ? [
+            'これは担当者への転送が成立しなかった後の再受付です。',
+            '担当者への転送toolは使わず、再転送もしないでください。',
+            '「担当者が出なかったため、引き続きコールセンターで承ります」と自然に案内してください。',
+            '先ほどの受付内容を踏まえ、まだ伺えていない情報を一つずつ確認してください。確認できたら内容を復唱し、折り返し要否を確認してから終話してください。',
+            handoffSummary ? `先ほどの受付内容の要約（参考）: ${handoffSummary}` : ''
+        ].filter(Boolean).join('\n')
+        : '';
     const session = {
         type: 'realtime',
         model: realtimeModel,
-        instructions: RESOLVED_SYSTEM_MESSAGE,
+        instructions: fallbackInstructions
+            ? `${RESOLVED_SYSTEM_MESSAGE}\n${fallbackInstructions}`
+            : RESOLVED_SYSTEM_MESSAGE,
         audio: {
             input: {
                 format: { type: AUDIO_FORMAT },
@@ -421,7 +434,7 @@ const buildRealtimeSessionConfig = ({
 
     session.tools = [
         VALIDATE_CALLBACK_PHONE_TOOL,
-        ...(TRANSFER_TO_HUMAN_TOOL ? [TRANSFER_TO_HUMAN_TOOL] : []),
+        ...(TRANSFER_TO_HUMAN_TOOL && !handoffFallback ? [TRANSFER_TO_HUMAN_TOOL] : []),
         ...(FINISH_RECEPTION_TOOL ? [FINISH_RECEPTION_TOOL] : [])
     ];
     if (session.tools.length > 0) {
@@ -627,20 +640,45 @@ fastify.post('/handoff/dial-status', async (request, reply) => {
     if (!isValidTwilioWebhook({ request })) return reply.code(403).send('Forbidden');
 
     const connected = request.body?.DialCallStatus === 'completed';
+    let fallbackTwiml = '';
     if (!connected) {
-        const context = await handoffContextStore.get(callSid);
+        let context = null;
+        try {
+            context = await handoffContextStore.get(callSid);
+        } catch (error) {
+            console.error('Failed to load handoff fallback context:', error.message);
+        }
         const text = [
             '担当者への転送が成立しませんでした。',
             context?.summary ? `受付内容: ${context.summary}` : '受付内容は管理画面で確認してください。',
-            '発信者へ折り返し連絡をお願いします。'
+            '通話はコールセンターへ戻り、残りの情報を確認して受付を完了します。'
         ].join('\n');
-        await notificationOutbox.enqueue({
-            kind: 'handoff-fallback',
-            callId: callSid,
-            subject: `【電話受付】担当者不応答 ${callSid}`,
-            text
+        try {
+            await notificationOutbox.enqueue({
+                kind: 'handoff-fallback',
+                callId: callSid,
+                subject: `【電話受付】担当者不応答 ${callSid}`,
+                text
+            });
+        } catch (error) {
+            // Notification failure must not strand the caller in the Dial leg.
+            console.error('Failed to enqueue handoff fallback notification:', error.message);
+        }
+        try {
+            await handoffContextStore.update(callSid, {
+                status: 'fallback_returned',
+                dialCallStatus: request.body?.DialCallStatus || ''
+            });
+        } catch (error) {
+            console.error('Failed to update handoff fallback context:', error.message);
+        }
+        fallbackTwiml = buildMediaStreamTwimlWithParams({
+            host: request.headers.host,
+            from: request.body?.From || '',
+            to: request.body?.To || '',
+            handoffFallback: true,
+            introMessage: '担当者におつなぎできなかったため、引き続きコールセンターでご用件を確認いたします。'
         });
-        await handoffContextStore.update(callSid, { status: 'fallback_notified', dialCallStatus: request.body?.DialCallStatus || '' });
     } else {
         await handoffContextStore.update(callSid, { status: 'connected', dialCallStatus: 'completed' });
     }
@@ -650,7 +688,7 @@ fastify.post('/handoff/dial-status', async (request, reply) => {
         target: callSid,
         metadata: { dialCallStatus: request.body?.DialCallStatus || '', connected }
     });
-    return sendTwiml(reply, buildDialStatusTwiml({ connected }));
+    return sendTwiml(reply, connected ? buildDialStatusTwiml({ connected }) : fallbackTwiml);
 });
 
 // メディアストリーム用のWebSocketルート
@@ -1030,7 +1068,11 @@ fastify.register(async (fastify) => {
         const sendSessionUpdate = () => {
             const sessionUpdate = {
                 type: 'session.update',
-                session: buildRealtimeSessionConfig(realtimeSettings)
+                session: buildRealtimeSessionConfig({
+                    ...realtimeSettings,
+                    handoffFallback: Boolean(session.handoffFallback),
+                    handoffSummary: session.handoffSummary || ''
+                })
             };
 
             console.log(`Sending Realtime session update for model ${realtimeSettings.realtimeModel}`);
@@ -1040,10 +1082,16 @@ fastify.register(async (fastify) => {
         // OpenAI WebSocketが開いたとき
         openAiWs.on('open', () => {
             console.log('Connected to the OpenAI Realtime API');
-            setTimeout(() => {
+            setTimeout(async () => {
+                if (session.handoffContextPromise) {
+                    await session.handoffContextPromise;
+                }
                 sendSessionUpdate();
                 flushPendingInboundAudio();
                 // 通話開始時の挨拶を、顧客へ向けた日本語音声として生成する。
+                const firstMessage = session.handoffFallback
+                    ? 'では、先ほどの内容について、まだ伺えていない情報を一つずつ確認させてください。'
+                    : FIRST_MESSAGE;
                 const queuedFirstMessage = {
                     type: 'conversation.item.create',
                     item: {
@@ -1051,7 +1099,7 @@ fastify.register(async (fastify) => {
                         role: 'user',
                         content: [{
                             type: 'input_text',
-                            text: `通話が開始しました。顧客に向けて、次の挨拶を自然な日本語で読み上げ、その後は顧客の返答を待ってください。「${FIRST_MESSAGE}」`
+                            text: `通話が開始しました。顧客に向けて、次の案内を自然な日本語で読み上げ、その後は顧客の返答を待ってください。「${firstMessage}」`
                         }]
                     }
                 };
@@ -1190,11 +1238,32 @@ fastify.register(async (fastify) => {
                             console.warn('Twilio stream start message did not include streamSid');
                             break;
                         }
+                        const customParameters = data.start.customParameters || {};
                         session.streamSid = data.start.streamSid;
                         session.callSid = data.start.callSid || session.callSid;
                         session.accountSid = data.start.accountSid || '';
-                        session.from = data.start.customParameters?.from || '';
-                        session.to = data.start.customParameters?.to || '';
+                        session.from = customParameters.from || '';
+                        session.to = customParameters.to || '';
+                        const handoffFallback = String(
+                            customParameters.handoff_fallback || customParameters.handoffFallback || ''
+                        ).toLowerCase() === 'true';
+                        if (handoffFallback) {
+                            session.handoffFallback = true;
+                            session.handoff = {
+                                ...(session.handoff || {}),
+                                started: true,
+                                fallback: true,
+                                reason: '担当者不応答'
+                            };
+                            session.handoffContextPromise = handoffContextStore.get(session.callSid)
+                                .then((context) => {
+                                    session.handoffSummary = context?.summary || '';
+                                })
+                                .catch((error) => {
+                                    session.handoffSummary = '';
+                                    console.error(`Failed to load handoff fallback context: ${error.message}`);
+                                });
+                        }
                         console.log('Incoming stream has started', session.streamSid);
                         auditLog('call.started', {
                             actor: 'twilio',

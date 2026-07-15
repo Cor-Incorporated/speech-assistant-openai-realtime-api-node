@@ -2,7 +2,9 @@
 
 ## 結論
 
-日本向け音声AI受付の既定は `gpt-realtime-2.1` とし、受付・予約・問い合わせ振り分けのような通常フローでは `reasoning.effort=low` を使う。`gpt-realtime-2` はロールバック・比較検証用に残す（[ADR-0004](./adr/0004-gpt-realtime-2-1-adoption.md)）。
+UAT・通常運用の既定は `gpt-realtime-2.1-mini` とし、受付・予約・問い合わせ振り分けのような通常フローでは `reasoning.effort=low`、音声は `coral` を使う。`gpt-realtime-2.1` と `gpt-realtime-2` は比較・ロールバック用に残す（[ADR-0004](./adr/0004-gpt-realtime-2-1-adoption.md)）。
+
+`gpt-realtime-2.1-mini` はRealtime音声入出力とfunction callingに対応する低遅延・低コスト向けモデルとして、通常の電話受付に採用する。モデルページの仕様と接続結果はUATで継続確認する。
 
 理由は、OpenAI公式情報で `gpt-realtime-2` が Realtime 音声向けの推論モデルとして位置づけられ、`gpt-realtime-1.5` より長いコンテキスト、設定可能な reasoning effort、強い指示追従、複雑な音声エージェントでのより信頼できる tool use を示しているため。
 

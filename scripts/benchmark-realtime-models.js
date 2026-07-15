@@ -23,7 +23,7 @@ const {
     REALTIME_BENCHMARK_TIMEOUT_MS = '15000',
     REALTIME_REASONING_EFFORT = 'low',
     TRANSCRIPTION_MODEL = 'gpt-4o-transcribe',
-    VOICE = 'marin',
+    VOICE = 'coral',
     AUDIO_FORMAT = 'audio/pcmu',
     AUDIO_NOISE_REDUCTION = 'near_field',
     VAD_TYPE = 'server_vad',

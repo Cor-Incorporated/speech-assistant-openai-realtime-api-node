@@ -41,6 +41,21 @@ test('gateway routes only digit 5 to the practice system', () => {
     assert.match(other, /media-stream/);
 });
 
+test('handoff timeout returns the caller to the media stream for follow-up intake', () => {
+    const body = buildMediaStreamTwimlWithParams({
+        host: 'voice.example',
+        from: '+819012345678',
+        to: '+815017929351',
+        handoffFallback: true,
+        introMessage: '担当者が応答できなかったため、引き続きご用件を確認します。'
+    });
+
+    assert.match(body, /担当者が応答できなかったため/);
+    assert.match(body, /handoff_fallback/);
+    assert.match(body, /media-stream/);
+    assert.doesNotMatch(body, /Hangup/);
+});
+
 test('handoff TwiML includes caller bridge, whisper, and status callbacks', () => {
     const body = buildHandoffDialTwiml({
         callSid: 'CA1234567890abcdef1234567890ABCDEF',

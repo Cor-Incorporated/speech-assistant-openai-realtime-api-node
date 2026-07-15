@@ -248,7 +248,7 @@ function App() {
     const [cleanupMessage, setCleanupMessage] = useState('');
     const [filter, setFilter] = useState<Filter>('all');
     const [runtimeDraft, setRuntimeDraft] = useState({
-        realtimeModel: 'gpt-realtime-2.1',
+        realtimeModel: 'gpt-realtime-2.1-mini',
         realtimeReasoningEffort: 'low'
     });
     const [opsDraft, setOpsDraft] = useState({
@@ -262,7 +262,7 @@ function App() {
     const modelOptions = runtimeConfig?.models?.realtimeOptions?.length
         ? runtimeConfig.models.realtimeOptions
         : [
-            { value: 'gpt-realtime-2.1', label: 'GPT Realtime 2.1', description: '現行の推奨' },
+            { value: 'gpt-realtime-2.1-mini', label: 'GPT Realtime 2.1 mini', description: '現行の推奨' },
             { value: 'gpt-realtime-2', label: 'GPT Realtime 2（ロールバック）', description: '比較・ロールバック用' },
             { value: 'gpt-realtime-1.5', label: 'GPT Realtime 1.5', description: '比較検証用' }
         ];
@@ -326,7 +326,7 @@ function App() {
     useEffect(() => {
         if (!runtimeConfig?.models) return;
         setRuntimeDraft({
-            realtimeModel: runtimeConfig.models.realtime || 'gpt-realtime-2.1',
+            realtimeModel: runtimeConfig.models.realtime || 'gpt-realtime-2.1-mini',
             realtimeReasoningEffort: runtimeConfig.models.realtimeReasoningEffort || 'low'
         });
         setSettingsSaveStatus('idle');

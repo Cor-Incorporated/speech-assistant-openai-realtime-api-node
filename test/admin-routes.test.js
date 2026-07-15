@@ -467,7 +467,7 @@ test('runtime config response excludes raw secret values', async () => {
 
     assert.equal(response.statusCode, 200);
     const body = response.json();
-    assert.equal(body.models.realtime, 'gpt-realtime-2.1');
+    assert.equal(body.models.realtime, 'gpt-realtime-2.1-mini');
     assert.equal(body.models.realtimeReasoningEffort, 'low');
     assert.equal(body.models.realtimeOptions.some((option) => option.value === 'gpt-realtime-1.5'), true);
     assert.equal(body.voice, 'marin');
