@@ -15,6 +15,7 @@ env:
   REGION: ${{ vars.CLOUD_RUN_REGION || 'asia-northeast1' }}
   SERVICE: ${{ vars.CLOUD_RUN_SERVICE || 'speech-assistant-realtime' }}
   DEPLOYER_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+  RUNTIME_SERVICE_ACCOUNT: ${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT || 'speech-assistant-runtime@cor-jp-web.iam.gserviceaccount.com' }}
   WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
   TWILIO_WEBHOOK_URL: ${{ vars.TWILIO_WEBHOOK_URL }}
   CALL_LOG_FIRESTORE_DATABASE_ID: ${{ vars.CALL_LOG_FIRESTORE_DATABASE_ID }}
@@ -85,6 +86,7 @@ jobs:
             --region "$REGION" \
             --source . \
             --allow-unauthenticated \
+            --service-account "$RUNTIME_SERVICE_ACCOUNT" \
             --min-instances 1 \
             --max-instances 5 \
             --concurrency 20 \
