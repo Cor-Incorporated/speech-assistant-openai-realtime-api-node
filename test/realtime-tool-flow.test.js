@@ -33,6 +33,67 @@ test('Realtime tool flow validates callback phone before assistant confirmation'
     assert.equal(state.callbackPhone.valid, true);
 });
 
+test('Realtime tool flow combines callback phone fragments across interrupted turns', () => {
+    const state = {};
+    const validationEvents = [];
+
+    for (const [callId, heardPhoneNumber] of [
+        ['phone_fragment_1', '090'],
+        ['phone_fragment_2', '1234'],
+        ['phone_fragment_3', '5678']
+    ]) {
+        const result = handleRealtimeToolCalls({
+            event: toolEvent('validate_callback_phone', callId, { heard_phone_number: heardPhoneNumber }),
+            state,
+            callEndConfig: buildCallEndConfig(),
+            onPhoneValidation: (metadata) => validationEvents.push(metadata)
+        });
+        const output = JSON.parse(result.outputs[0].item.output);
+
+        if (callId !== 'phone_fragment_3') {
+            assert.equal(output.valid, false);
+        } else {
+            assert.equal(output.valid, true);
+            assert.equal(output.normalizedPhoneNumber, '09012345678');
+        }
+    }
+
+    assert.equal(state.callbackPhone.valid, true);
+    assert.equal(state.callbackPhoneCapture, undefined);
+    assert.deepEqual(validationEvents.map((event) => event.captureAction), [
+        'buffered_fragment',
+        'buffered_fragment',
+        'combined_fragments'
+    ]);
+});
+
+test('Realtime tool flow reports safe metadata for an over-expanded phone argument', () => {
+    const validationEvents = [];
+    const result = handleRealtimeToolCalls({
+        event: toolEvent('validate_callback_phone', 'phone_repeated', {
+            heard_phone_number: '0901234567809012345678'
+        }),
+        state: {},
+        callEndConfig: buildCallEndConfig(),
+        onPhoneValidation: (metadata) => validationEvents.push(metadata)
+    });
+    const output = JSON.parse(result.outputs[0].item.output);
+
+    assert.equal(output.valid, true);
+    assert.equal(output.normalizedPhoneNumber, '09012345678');
+    assert.deepEqual(validationEvents[0], {
+        callId: 'phone_repeated',
+        reason: 'valid',
+        rawReason: 'too_long',
+        captureAction: 'recovered_repeated',
+        inputChars: 22,
+        inputDigits: 22,
+        candidateCount: 1,
+        bufferedDigits: 0,
+        valid: true
+    });
+});
+
 test('Realtime tool flow rejects invalid callback phone fragments', () => {
     const state = {};
     const result = handleRealtimeToolCalls({

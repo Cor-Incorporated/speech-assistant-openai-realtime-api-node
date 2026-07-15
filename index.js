@@ -36,6 +36,7 @@ import {
     buildTransferToHumanTool,
     HandoffContextStore,
     summarizeHandoffTurns,
+    shouldAutoHandoffGeneral,
     updateTwilioCallTwiml
 } from './lib/handoff.js';
 import { NotificationOutbox } from './lib/notification-outbox.js';
@@ -68,8 +69,11 @@ const ADMIN_APP_INDEX_PATH = join(ADMIN_APP_DIST_DIR, 'index.html');
 const DEFAULT_SYSTEM_MESSAGE = [
     'あなたは日本のコールセンターで電話一次受付を担当するAIオペレーターです。',
     '必ず自然で丁寧な日本語だけで応答してください。英語では応答しません。',
+    '通常は「Cor.株式会社のお電話受付です」と名乗り、自分からAI・人工知能・システムとは名乗らないでください。AIかどうかを尋ねられた場合は正直に答え、希望があれば担当者へ引き継いでください。',
+    '相手が話し始めたら自分の発話を止めて聞いてください。相手の発話に重ねて話さず、特に電話番号の途中で応答や質問を差し込まないでください。',
     '相手の発話が聞き取れない場合は、推測せず「恐れ入ります。もう一度お話しいただけますか」と確認してください。',
     '一度に複数の質問をせず、用件、名前、折り返し電話番号、希望日時などを一つずつ確認してください。',
+    '電話番号は相手が最後まで話し終えてから確認してください。途中で区切れた場合は、3〜4桁ずつ続けて話してもらい、複数回の発話を1つの番号として確認して構いません。',
     '氏名は聞こえた読みをそのままカタカナで確認してください。一般的な漢字名へ勝手に変換しないでください。',
     '氏名が少しでも不確かな場合は「お名前の読みをカタカナで確認させてください」と聞き返してください。',
     '会話を勝手に終了せず、必要に応じて担当者へ引き継ぐ旨を伝え、受付完了時は終話ルールに従って案内してください。',
@@ -132,7 +136,7 @@ const {
     RESEND_API_KEY = '',
     SYSTEM_MESSAGE = DEFAULT_SYSTEM_MESSAGE,
     SYSTEM_MESSAGE_FILE = '',
-    FIRST_MESSAGE = 'お電話ありがとうございます。AI受付です。どのようなご用件でしょうか。',
+    FIRST_MESSAGE = 'お電話ありがとうございます。Cor.株式会社のお電話受付です。ご用件をお聞かせください。',
     CALL_END_WORKFLOW_ENABLED = 'true',
     CALL_END_HANGUP_ENABLED = 'true',
     CALL_END_FINAL_PHRASE = '',
@@ -877,7 +881,12 @@ fastify.register(async (fastify) => {
                 event,
                 state: session,
                 callEndConfig: CALL_END_CONFIG,
-                handoffConfig: HANDOFF_CONFIG
+                handoffConfig: HANDOFF_CONFIG,
+                onPhoneValidation: (metadata) => auditLog('callback_phone.validation', {
+                    actor: 'realtime',
+                    target: session.callSid || sessionId,
+                    metadata
+                })
             });
             if (!result.handled) return false;
 
@@ -910,6 +919,21 @@ fastify.register(async (fastify) => {
             openAiWs.send(JSON.stringify({ type: 'response.create' }));
             if (SHOULD_LOG_REALTIME_EVENTS) {
                 console.log(`Sent response.create (${reason})`);
+            }
+        };
+
+        const interruptAssistantResponse = () => {
+            if (responseInProgress && openAiWs.readyState === WebSocket.OPEN) {
+                openAiWs.send(JSON.stringify({ type: 'response.cancel' }));
+            }
+
+            pendingResponseAfterCurrent = false;
+
+            if (session.streamSid && connection.readyState === WebSocket.OPEN) {
+                connection.send(JSON.stringify({
+                    event: 'clear',
+                    streamSid: session.streamSid
+                }));
             }
         };
 
@@ -985,6 +1009,33 @@ fastify.register(async (fastify) => {
                     if (SHOULD_LOG_TRANSCRIPTS && gateResult.normalized) {
                         console.log(`User (${sessionId}): ${gateResult.normalized}`);
                     }
+
+                    if (
+                        HANDOFF_CONFIG.enabled
+                        && !session.handoff?.started
+                        && !session.handoff?.starting
+                        && shouldAutoHandoffGeneral(session.turns)
+                    ) {
+                        session.handoff = {
+                            ...(session.handoff || {}),
+                            starting: true,
+                            trigger: 'general_business_dispute'
+                        };
+                        auditLog('handoff.auto_triggered', {
+                            actor: 'system',
+                            target: session.callSid || sessionId,
+                            metadata: {
+                                destination: 'general',
+                                reason: 'general_business_dispute'
+                            }
+                        });
+                        void startHandoff({
+                            reason: '料金・既存取引に関する人間対応',
+                            destination: 'general'
+                        });
+                        return;
+                    }
+
                     if (SHOULD_GATE_REALTIME_INPUT) {
                         sendRealtimeResponseCreate(`accepted_transcript:${gateResult.reason}`);
                     }
@@ -1004,6 +1055,10 @@ fastify.register(async (fastify) => {
 
                 if (response.type === 'session.updated') {
                     console.log('Realtime session updated successfully');
+                }
+
+                if (response.type === 'input_audio_buffer.speech_started') {
+                    interruptAssistantResponse();
                 }
 
                 if (response.type === 'response.created') {

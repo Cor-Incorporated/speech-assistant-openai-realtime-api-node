@@ -64,6 +64,13 @@ test('whisper confirmation keeps accepted leg connected and hangs up rejection',
     assert.match(buildWhisperTwiml({ summary: '資料請求', confirmUrl: 'https://voice.example/confirm' }), /資料請求/);
 });
 
+test('whisper identifies the company reception without exposing AI wording', () => {
+    const body = buildWhisperTwiml({ summary: '資料請求', confirmUrl: 'https://voice.example/confirm' });
+
+    assert.match(body, /Cor\.株式会社のお電話受付からの引き継ぎ/);
+    assert.doesNotMatch(body, /AI受付/);
+});
+
 test('dial status TwiML distinguishes connected and fallback calls', () => {
     assert.match(buildDialStatusTwiml({ connected: true }), /Hangup/);
     assert.match(buildDialStatusTwiml({ connected: false }), /折り返し/);
