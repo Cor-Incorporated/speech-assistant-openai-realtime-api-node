@@ -199,7 +199,8 @@ test('Realtime tool flow routes payment disputes to general even if model reques
             numbers: ['+819012345678', '+817085611659'],
             destinationNumbers: { contract: '+819012345678', general: '+817085611659' },
             enforceRoutingPolicy: true
-        }
+        },
+        allowComplexComplaintHandoff: true
     });
     const output = JSON.parse(result.outputs[0].item.output);
 
@@ -209,6 +210,53 @@ test('Realtime tool flow routes payment disputes to general even if model reques
         destination: 'general'
     }]);
     assert.equal(output.destination, 'general');
+});
+
+test('Realtime tool flow blocks complaint transfer until complex model approval', () => {
+    const result = handleRealtimeToolCalls({
+        event: toolEvent('transfer_to_human', 'handoff_payment_blocked', {
+            reason: '支払い差額の相談',
+            destination: 'general'
+        }),
+        state: {
+            turns: [{ role: 'user', text: '業務委託費が1万円足りないので確認したいです。' }]
+        },
+        callEndConfig: buildCallEndConfig(),
+        handoffConfig: {
+            enabled: true,
+            numbers: ['+819012345678', '+817085611659'],
+            destinationNumbers: { contract: '+819012345678', general: '+817085611659' },
+            enforceRoutingPolicy: true
+        }
+    });
+    const output = JSON.parse(result.outputs[0].item.output);
+
+    assert.deepEqual(result.handoffRequests, []);
+    assert.equal(output.reason, 'non_urgent_general_handoff');
+});
+
+test('Realtime tool flow keeps harassment in AI handling even after complex escalation', () => {
+    const result = handleRealtimeToolCalls({
+        event: toolEvent('transfer_to_human', 'handoff_harassment_blocked', {
+            reason: '責任者対応',
+            destination: 'general'
+        }),
+        state: {
+            turns: [{ role: 'user', text: 'ふざけるな。脅迫だ。責任者を出せ。' }]
+        },
+        callEndConfig: buildCallEndConfig(),
+        handoffConfig: {
+            enabled: true,
+            numbers: ['+817085611659'],
+            destinationNumbers: { contract: '', general: '+817085611659' },
+            enforceRoutingPolicy: true
+        },
+        allowComplexComplaintHandoff: true
+    });
+    const output = JSON.parse(result.outputs[0].item.output);
+
+    assert.deepEqual(result.handoffRequests, []);
+    assert.equal(output.reason, 'customer_harassment_ai_handling');
 });
 
 test('Realtime tool flow blocks human transfer for non-handoff business calls', () => {

@@ -53,6 +53,14 @@ UAT・通常運用の既定は `gpt-realtime-2.1-mini` とし、受付・予約�
 - 接続ベンチマークでは`gpt-realtime-2.1`と`gpt-realtime-2`が各3/3成功し、`session.updated`中央値は2.1が862ms、2が869msだった。音声品質、日本語entity capture、tool call成功率は実通話UATで継続評価する。
 - 実装注意: `lib/realtime-models.js` の `shouldSetRealtimeReasoning` は `startsWith('gpt-realtime-2')` のprefix一致のため、`gpt-realtime-2.1` にも自動的に `reasoning.effort` が送信される。選択肢追加時はテストでこの挙動を固定する。
 
+## 通話中の用途別ルーティング（2026-07-15追加）
+
+通常の電話受付は `gpt-realtime-2.1-mini` + `coral` で開始する。受託・開発依頼、営業、イベント、緊急性のない通常相談はこのモデルで受付し、受託依頼だけは必要に応じてそのまま `contract` 転送する。
+
+支払い差額、苦情、クレーム、強い不満などは即時転送せず、通話中に新しい `gpt-realtime-2.1` セッションへ受付内容を引き継ぐ。引き継ぎ後は `ash` を使い、事実関係・希望・緊急性を深掘りして、人間の判断が本当に必要な場合だけ `general` 転送する。脅迫・暴言・威圧は2.1でAI対応を継続し、`transfer_to_human` はサーバー側でも拒否する。
+
+Realtime APIでは稼働中セッションのモデルを `session.update` だけで変更できないため、2.1への昇格は新しいWebSocketセッションを作り、直近の受付内容をテキストで引き継ぐ。旧セッションは新セッションの接続後に閉じ、接続失敗時は元のminiセッションへ戻す。
+
 参照URL:
 
 - https://developers.openai.com/api/docs/models/gpt-realtime-2.1

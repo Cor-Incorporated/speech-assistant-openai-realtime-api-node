@@ -37,12 +37,18 @@ import {
     HandoffContextStore,
     summarizeHandoffTurns,
     summarizeHandoffWhisper,
-    shouldAutoHandoffGeneral,
+    isContractRequest,
     isNonHandoffBusinessCall,
     isSalesBusinessCall,
     isHandoffCallConnected,
+    shouldAutoHandoffGeneral,
     updateTwilioCallTwiml
 } from './lib/handoff.js';
+import {
+    buildComplexRealtimeInstructions,
+    classifyRealtimeConversation,
+    COMPLEX_REALTIME_MODEL
+} from './lib/realtime-escalation.js';
 import { NotificationOutbox } from './lib/notification-outbox.js';
 import {
     buildDialStatusTwiml,
@@ -82,6 +88,9 @@ const DEFAULT_SYSTEM_MESSAGE = [
     '氏名は聞こえた読みをそのままカタカナで確認してください。一般的な漢字名へ勝手に変換しないでください。',
     '氏名が少しでも不確かな場合は「お名前の読みをカタカナで確認させてください」と聞き返してください。',
     '内部の分類・転送ルールを顧客に説明しないでください。「営業や採用ではないため」「緊急性がないため」など、判定理由をそのまま発話してはいけません。',
+    '支払い差額、正当な苦情、強い不満、暴言、脅し、威圧など判断の難しい用件は、内部カテゴリを説明せず、口論や説教をせずにAI受付を継続してください。システムが必要に応じて高精度対応モードへ切り替えます。',
+    '苦情・クレーム・支払いトラブルは、苦情だけを理由に担当者へ即時転送してはいけません。高精度対応モードで事実関係、相手の希望、緊急性を整理し、人間の判断・謝罪・補償判断・事実確認が必要な場合だけ担当者への転送を検討してください。',
+    '脅迫・暴言・威圧などは人間へ自動転送せず、AIコールセンターとして落ち着いて対応してください。反論や説教をせず、対応可能な範囲を示し、攻撃的な発言が続く場合は必要事項を最小限確認して丁寧に終話してください。',
     '会話を勝手に終了せず、必要に応じて担当者へ引き継ぐ旨を伝え、受付完了時は終話ルールに従って案内してください。',
     '採用応募・採用関連、営業・勧誘・広告、一般的な案内はAIで用件を受け付け、担当者へ自動転送しないでください。営業・採用提案は担当者へ報告し、必要があれば担当者から折り返すと案内してください。営業では折り返し希望の有無にかかわらず必要時の連絡先電話番号を一つ聞き、validate_callback_phoneで検証して記録してください。発信者が明確に折り返しを希望しない限り、営業のcallback_requiredはfalseにしてください。イベント・一般相談・緊急性のない代表者への取次ぎなど営業ではない相談は、必要時の連絡先電話番号を聞いて検証し、担当者から改めて折り返すためcallback_required=trueにしてください。電話番号を確認できるまでfinish_receptionを呼び出さないでください。',
     '受託案件、開発・制作、業務委託、見積相談など仕事の依頼で人間対応が必要な場合は、transfer_to_humanをdestination="contract"で使用してください。',
@@ -99,6 +108,7 @@ const {
     EXTRACTION_MODEL = 'gpt-5.4-mini',
     EXTRACTION_ENABLED = 'false',
     VOICE = 'coral',
+    COMPLEX_REALTIME_VOICE = 'ash',
     AUDIO_FORMAT = 'audio/pcmu',
     AUDIO_NOISE_REDUCTION = 'near_field',
     VAD_TYPE = 'server_vad',
@@ -406,8 +416,11 @@ const buildTurnDetectionConfig = () => {
 const buildRealtimeSessionConfig = ({
     realtimeModel = REALTIME_MODEL,
     realtimeReasoningEffort = REALTIME_REASONING_EFFORT,
+    realtimeVoice = VOICE,
     handoffFallback = false,
-    handoffSummary = ''
+    handoffSummary = '',
+    additionalInstructions = '',
+    includeModel = true
 } = {}) => {
     const fallbackInstructions = handoffFallback
         ? [
@@ -420,10 +433,9 @@ const buildRealtimeSessionConfig = ({
         : '';
     const session = {
         type: 'realtime',
-        model: realtimeModel,
         instructions: fallbackInstructions
-            ? `${RESOLVED_SYSTEM_MESSAGE}\n${fallbackInstructions}`
-            : RESOLVED_SYSTEM_MESSAGE,
+            ? `${RESOLVED_SYSTEM_MESSAGE}\n${fallbackInstructions}${additionalInstructions ? `\n${additionalInstructions}` : ''}`
+            : `${RESOLVED_SYSTEM_MESSAGE}${additionalInstructions ? `\n${additionalInstructions}` : ''}`,
         audio: {
             input: {
                 format: { type: AUDIO_FORMAT },
@@ -435,10 +447,12 @@ const buildRealtimeSessionConfig = ({
             },
             output: {
                 format: { type: AUDIO_FORMAT },
-                voice: VOICE
+                voice: realtimeVoice
             }
         }
     };
+
+    if (includeModel) session.model = realtimeModel;
 
     session.tools = [
         VALIDATE_CALLBACK_PHONE_TOOL,
@@ -763,11 +777,18 @@ fastify.register(async (fastify) => {
         };
         sessions.set(sessionId, session);
 
-        const openAiWs = new WebSocket(`wss://api.openai.com/v1/realtime?model=${encodeURIComponent(realtimeSettings.realtimeModel)}`, {
-            headers: {
-                Authorization: `Bearer ${OPENAI_API_KEY}`
+        const createRealtimeSocket = (model) => new WebSocket(
+            `wss://api.openai.com/v1/realtime?model=${encodeURIComponent(model)}`,
+            {
+                headers: {
+                    Authorization: `Bearer ${OPENAI_API_KEY}`
+                }
             }
-        });
+        );
+        let activeRealtimeModel = realtimeSettings.realtimeModel;
+        let activeRealtimeVoice = VOICE;
+        let openAiWs = createRealtimeSocket(activeRealtimeModel);
+        let realtimeSocketReady = false;
         let responseInProgress = false;
         let responseCreatePending = false;
         let pendingResponseAfterCurrent = false;
@@ -1024,6 +1045,9 @@ fastify.register(async (fastify) => {
                     requireBusinessCallback,
                     enforceRoutingPolicy: true
                 },
+                allowComplexComplaintHandoff: activeRealtimeModel === COMPLEX_REALTIME_MODEL
+                    || session.modelEscalation?.status === 'active'
+                    && session.modelEscalation?.category === 'complaint',
                 onPhoneValidation: (metadata) => auditLog('callback_phone.validation', {
                     actor: 'realtime',
                     target: session.callSid || sessionId,
@@ -1099,160 +1123,317 @@ fastify.register(async (fastify) => {
             }
         };
 
-        const sendSessionUpdate = () => {
+        const sendSessionUpdate = ({ socket = openAiWs, additionalInstructions = '' } = {}) => {
             const sessionUpdate = {
                 type: 'session.update',
                 session: buildRealtimeSessionConfig({
                     ...realtimeSettings,
+                    realtimeModel: activeRealtimeModel,
+                    realtimeVoice: activeRealtimeVoice,
                     handoffFallback: Boolean(session.handoffFallback),
-                    handoffSummary: session.handoffSummary || ''
+                    handoffSummary: session.handoffSummary || '',
+                    additionalInstructions,
+                    // The model is selected on the WebSocket URL and cannot be
+                    // changed through session.update on an active session.
+                    includeModel: false
                 })
             };
 
-            console.log(`Sending Realtime session update for model ${realtimeSettings.realtimeModel}`);
-            openAiWs.send(JSON.stringify(sessionUpdate));
+            console.log(`Sending Realtime session update for model ${activeRealtimeModel}`);
+            socket.send(JSON.stringify(sessionUpdate));
         };
 
-        // OpenAI WebSocketが開いたとき
-        openAiWs.on('open', () => {
-            console.log('Connected to the OpenAI Realtime API');
-            setTimeout(async () => {
-                if (session.handoffContextPromise) {
-                    await session.handoffContextPromise;
+        const escalateRealtimeModel = (classification) => {
+            if (
+                classification?.tier !== 'complex_complaint'
+                || classification.targetModel !== COMPLEX_REALTIME_MODEL
+                || activeRealtimeModel === COMPLEX_REALTIME_MODEL
+                || session.modelEscalation?.status === 'starting'
+                || session.modelEscalation?.status === 'active'
+            ) {
+                return false;
+            }
+
+            const previousSocket = openAiWs;
+            const fromModel = activeRealtimeModel;
+            const replacementSocket = createRealtimeSocket(classification.targetModel);
+            const contextSummary = summarizeHandoffTurns(session.turns, { maxTurns: 10, maxChars: 1200 });
+
+            session.modelEscalation = {
+                status: 'starting',
+                category: classification.category,
+                fromModel,
+                targetModel: classification.targetModel,
+                startedAt: new Date().toISOString(),
+                previousSocket
+            };
+            activeRealtimeModel = classification.targetModel;
+            activeRealtimeVoice = COMPLEX_REALTIME_VOICE;
+            openAiWs = replacementSocket;
+            realtimeSocketReady = false;
+            responseInProgress = false;
+            responseCreatePending = false;
+            pendingResponseAfterCurrent = false;
+
+            auditLog('realtime.model_escalation.started', {
+                actor: 'system',
+                target: session.callSid || sessionId,
+                metadata: {
+                    fromModel,
+                    toModel: classification.targetModel,
+                    category: classification.category
                 }
-                sendSessionUpdate();
-                flushPendingInboundAudio();
-                // 通話開始時の挨拶を、顧客へ向けた日本語音声として生成する。
-                const firstMessage = session.handoffFallback
-                    ? 'では、先ほどの内容について、まだ伺えていない情報を一つずつ確認させてください。'
-                    : FIRST_MESSAGE;
-                const queuedFirstMessage = {
-                    type: 'conversation.item.create',
-                    item: {
-                        type: 'message',
-                        role: 'user',
-                        content: [{
-                            type: 'input_text',
-                            text: `通話が開始しました。顧客に向けて、次の案内を一字一句変えずにそのまま読み上げ、その後は顧客の返答を待ってください。「${firstMessage}」`
-                        }]
+            });
+
+            attachRealtimeSocket(replacementSocket, {
+                initial: false,
+                resumeContext: contextSummary,
+                additionalInstructions: buildComplexRealtimeInstructions(classification.category)
+            });
+            return true;
+        };
+
+        const failRealtimeEscalation = (reason) => {
+            if (session.modelEscalation?.status !== 'starting') return;
+
+            const escalation = session.modelEscalation;
+            const previousSocket = escalation.previousSocket;
+            escalation.status = 'failed';
+            escalation.reason = reason || 'realtime_escalation_failed';
+            delete escalation.previousSocket;
+            auditLog('realtime.model_escalation.failed', {
+                actor: 'system',
+                target: session.callSid || sessionId,
+                metadata: { reason: escalation.reason }
+            });
+
+            if (previousSocket && previousSocket.readyState === WebSocket.OPEN) {
+                openAiWs = previousSocket;
+                activeRealtimeModel = escalation.fromModel;
+                activeRealtimeVoice = VOICE;
+                realtimeSocketReady = true;
+                responseInProgress = false;
+                responseCreatePending = false;
+                pendingResponseAfterCurrent = false;
+                sendRealtimeResponseCreate('complex_model_fallback');
+            }
+        };
+
+        const attachRealtimeSocket = (socket, {
+            initial = false,
+            resumeContext = '',
+            additionalInstructions = ''
+        } = {}) => {
+            socket.on('open', () => {
+                if (socket !== openAiWs) return;
+                console.log(`Connected to the OpenAI Realtime API (${activeRealtimeModel})`);
+                realtimeSocketReady = true;
+                setTimeout(async () => {
+                    if (socket !== openAiWs || socket.readyState !== WebSocket.OPEN) return;
+                    if (initial && session.handoffContextPromise) {
+                        await session.handoffContextPromise;
                     }
-                };
-                openAiWs.send(JSON.stringify(queuedFirstMessage));
-                // AIアシスタントに応答を促す
-                sendRealtimeResponseCreate('first_message');
-            }, 250);
-        });
+                    sendSessionUpdate({ socket, additionalInstructions });
+                    flushPendingInboundAudio();
 
-        // OpenAI WebSocketからのメッセージを処理
-        openAiWs.on('message', (data) => {
-            try {
-                const response = JSON.parse(data);
-
-                if (SHOULD_LOG_REALTIME_EVENTS && LOG_EVENT_TYPES.includes(response.type)) {
-                    console.log(`Received Realtime event: ${response.type}`);
-                }
-
-                // ユーザーの音声認識結果を処理
-                if (response.type === 'conversation.item.input_audio_transcription.completed') {
-                    const userMessage = String(response.transcript || '').trim();
-                    const gateResult = evaluateRealtimeInputTranscript(userMessage, REALTIME_INPUT_GATE_CONFIG);
-
-                    if (!gateResult.accepted) {
-                        deleteConversationItem(response.item_id, gateResult.reason);
-                        if (SHOULD_LOG_REALTIME_EVENTS) {
-                            console.log(`Ignored input transcript (${sessionId}): ${gateResult.reason}`);
-                        }
-                        return;
-                    }
-
-                    appendTurn(session, 'user', gateResult.normalized);
-                    if (SHOULD_LOG_TRANSCRIPTS && gateResult.normalized) {
-                        console.log(`User (${sessionId}): ${gateResult.normalized}`);
-                    }
-
-                    if (
-                        HANDOFF_CONFIG.enabled
-                        && !session.handoff?.started
-                        && !session.handoff?.starting
-                        && !isNonHandoffBusinessCall(session.turns)
-                        && shouldAutoHandoffGeneral(session.turns)
-                    ) {
-                        session.handoff = {
-                            ...(session.handoff || {}),
-                            starting: true,
-                            trigger: 'general_business_dispute'
+                    if (initial) {
+                        // 通話開始時の挨拶を、顧客へ向けた日本語音声として生成する。
+                        const firstMessage = session.handoffFallback
+                            ? 'では、先ほどの内容について、まだ伺えていない情報を一つずつ確認させてください。'
+                            : FIRST_MESSAGE;
+                        socket.send(JSON.stringify({
+                            type: 'conversation.item.create',
+                            item: {
+                                type: 'message',
+                                role: 'user',
+                                content: [{
+                                    type: 'input_text',
+                                    text: `通話が開始しました。顧客に向けて、次の案内を一字一句変えずにそのまま読み上げ、その後は顧客の返答を待ってください。「${firstMessage}」`
+                                }]
+                            }
+                        }));
+                        sendRealtimeResponseCreate('first_message');
+                    } else {
+                        session.modelEscalation = {
+                            ...(session.modelEscalation || {}),
+                            status: 'active',
+                            activatedAt: new Date().toISOString()
                         };
-                        auditLog('handoff.auto_triggered', {
+                        auditLog('realtime.model_escalation.succeeded', {
                             actor: 'system',
                             target: session.callSid || sessionId,
                             metadata: {
-                                destination: 'general',
-                                reason: 'general_business_dispute'
+                                fromModel: session.modelEscalation.fromModel,
+                                activeModel: activeRealtimeModel,
+                                category: session.modelEscalation.category
                             }
                         });
-                        void startHandoff({
-                            reason: '料金・既存取引に関する人間対応',
-                            destination: 'general'
-                        });
-                        return;
+                        const previousSocket = session.modelEscalation.previousSocket;
+                        delete session.modelEscalation.previousSocket;
+                        if (previousSocket && previousSocket !== socket && previousSocket.readyState === WebSocket.OPEN) {
+                            previousSocket.close(1000, 'model_escalated');
+                        }
+                        socket.send(JSON.stringify({
+                            type: 'conversation.item.create',
+                            item: {
+                                type: 'message',
+                                role: 'user',
+                                content: [{
+                                    type: 'input_text',
+                                    text: `これまでの受付内容を引き継ぎます。顧客には内部のモデル切替を説明せず、自然に会話を続けてください。受付内容: ${resumeContext || '直前の発話を踏まえて確認を続けてください。'}`
+                                }]
+                            }
+                        }));
+                        sendRealtimeResponseCreate('complex_model_resume');
+                    }
+                }, 250);
+            });
+
+            socket.on('message', (data) => {
+                if (socket !== openAiWs) return;
+                try {
+                    const response = JSON.parse(data);
+
+                    if (SHOULD_LOG_REALTIME_EVENTS && LOG_EVENT_TYPES.includes(response.type)) {
+                        console.log(`Received Realtime event: ${response.type}`);
                     }
 
-                    if (SHOULD_GATE_REALTIME_INPUT) {
-                        sendRealtimeResponseCreate(`accepted_transcript:${gateResult.reason}`);
+                    if (response.type === 'conversation.item.input_audio_transcription.completed') {
+                        const userMessage = String(response.transcript || '').trim();
+                        const gateResult = evaluateRealtimeInputTranscript(userMessage, REALTIME_INPUT_GATE_CONFIG);
+
+                        if (!gateResult.accepted) {
+                            deleteConversationItem(response.item_id, gateResult.reason);
+                            if (SHOULD_LOG_REALTIME_EVENTS) {
+                                console.log(`Ignored input transcript (${sessionId}): ${gateResult.reason}`);
+                            }
+                            return;
+                        }
+
+                        appendTurn(session, 'user', gateResult.normalized);
+                        if (SHOULD_LOG_TRANSCRIPTS && gateResult.normalized) {
+                            console.log(`User (${sessionId}): ${gateResult.normalized}`);
+                        }
+
+                        const classification = classifyRealtimeConversation(session.turns);
+                        if (
+                            classification.tier === 'complex_complaint'
+                            && activeRealtimeModel !== COMPLEX_REALTIME_MODEL
+                        ) {
+                            if (escalateRealtimeModel(classification)) return;
+                        }
+
+                        const urgentHumanSupport = shouldAutoHandoffGeneral(session.turns)
+                            && classification.tier !== 'complex_complaint';
+                        if (
+                            HANDOFF_CONFIG.enabled
+                            && urgentHumanSupport
+                            && !session.handoff?.started
+                            && !session.handoff?.starting
+                            && !isNonHandoffBusinessCall(session.turns)
+                        ) {
+                            const urgentDestination = isContractRequest(session.turns)
+                                ? 'contract'
+                                : 'general';
+                            session.handoff = {
+                                ...(session.handoff || {}),
+                                starting: true,
+                                trigger: 'urgent_human_support'
+                            };
+                            auditLog('handoff.auto_triggered', {
+                                actor: 'system',
+                                target: session.callSid || sessionId,
+                                metadata: {
+                                    destination: urgentDestination,
+                                    category: 'urgent_human_support',
+                                    reason: 'explicit_urgent_request'
+                                }
+                            });
+                            void startHandoff({
+                                reason: '緊急の人間対応',
+                                destination: urgentDestination
+                            });
+                            return;
+                        }
+
+                        if (SHOULD_GATE_REALTIME_INPUT) {
+                            sendRealtimeResponseCreate(`accepted_transcript:${gateResult.reason}`);
+                        }
+                    }
+
+                    if (response.type === 'response.output_audio_transcript.done') {
+                        const agentMessage = response.transcript || '';
+                        appendTurn(session, 'agent', agentMessage);
+                        if (SHOULD_LOG_TRANSCRIPTS && agentMessage) console.log(`Agent (${sessionId}): ${agentMessage}`);
+                        if (isTerminalAgentMessage(agentMessage, CALL_END_CONFIG)) {
+                            requestCallEnd({
+                                source: 'terminal_phrase',
+                                reason: 'assistant_final_phrase'
+                            });
+                        }
+                    }
+
+                    if (response.type === 'session.updated') {
+                        console.log(`Realtime session updated successfully (${activeRealtimeModel})`);
+                    }
+
+                    if (response.type === 'input_audio_buffer.speech_started') {
+                        interruptAssistantResponse();
+                    }
+
+                    if (response.type === 'response.created') {
+                        responseInProgress = true;
+                        responseCreatePending = false;
+                    }
+
+                    if (response.type === 'response.done') {
+                        responseInProgress = false;
+                        responseCreatePending = false;
+                        if (handleToolCalls(response)) {
+                            return;
+                        }
+                        if (pendingResponseAfterCurrent) {
+                            pendingResponseAfterCurrent = false;
+                            sendRealtimeResponseCreate('queued_after_response_done');
+                            return;
+                        }
+                        sendEndCallMark('response_done');
+                    }
+
+                    if (response.type === 'error') {
+                        responseCreatePending = false;
+                        console.error('Realtime API error:', response.error?.message || 'Unknown realtime error');
+                        if (!initial && session.modelEscalation?.status === 'starting') {
+                            failRealtimeEscalation(response.error?.message || 'realtime_error');
+                        }
+                    }
+
+                    if ((response.type === 'response.output_audio.delta' || response.type === 'response.audio.delta') && response.delta) {
+                        sendAudioToTwilio(response.delta);
+                    }
+                } catch (error) {
+                    console.error('Error processing OpenAI message:', error.message);
+                }
+            });
+
+            socket.on('close', (code) => {
+                if (socket === openAiWs) {
+                    realtimeSocketReady = false;
+                    session.openAiCloseCode = code;
+                    if (session.modelEscalation?.status === 'starting') {
+                        failRealtimeEscalation(`socket_closed_${code}`);
                     }
                 }
+                console.log(`Disconnected from the OpenAI Realtime API (${activeRealtimeModel})`);
+            });
 
-                if (response.type === 'response.output_audio_transcript.done') {
-                    const agentMessage = response.transcript || '';
-                    appendTurn(session, 'agent', agentMessage);
-                    if (SHOULD_LOG_TRANSCRIPTS && agentMessage) console.log(`Agent (${sessionId}): ${agentMessage}`);
-                    if (isTerminalAgentMessage(agentMessage, CALL_END_CONFIG)) {
-                        requestCallEnd({
-                            source: 'terminal_phrase',
-                            reason: 'assistant_final_phrase'
-                        });
-                    }
-                }
+            socket.on('error', (error) => {
+                if (socket === openAiWs) session.openAiError = error.message;
+                console.error('Error in the OpenAI WebSocket:', error);
+            });
+        };
 
-                if (response.type === 'session.updated') {
-                    console.log('Realtime session updated successfully');
-                }
-
-                if (response.type === 'input_audio_buffer.speech_started') {
-                    interruptAssistantResponse();
-                }
-
-                if (response.type === 'response.created') {
-                    responseInProgress = true;
-                    responseCreatePending = false;
-                }
-
-                if (response.type === 'response.done') {
-                    responseInProgress = false;
-                    responseCreatePending = false;
-                    if (handleToolCalls(response)) {
-                        return;
-                    }
-                    if (pendingResponseAfterCurrent) {
-                        pendingResponseAfterCurrent = false;
-                        sendRealtimeResponseCreate('queued_after_response_done');
-                        return;
-                    }
-                    sendEndCallMark('response_done');
-                }
-
-                if (response.type === 'error') {
-                    responseCreatePending = false;
-                    console.error('Realtime API error:', response.error?.message || 'Unknown realtime error');
-                }
-
-                if ((response.type === 'response.output_audio.delta' || response.type === 'response.audio.delta') && response.delta) {
-                    sendAudioToTwilio(response.delta);
-                }
-            } catch (error) {
-                console.error('Error processing OpenAI message:', error.message);
-            }
-        });
+        attachRealtimeSocket(openAiWs, { initial: true });
 
         // Twilioからのメッセージを処理
         const handleTwilioMessage = (message) => {
@@ -1386,16 +1567,6 @@ fastify.register(async (fastify) => {
             void handleTwilioClose(code, reason);
         }
 
-        // OpenAI WebSocketのエラー処理
-        openAiWs.on('close', (code) => {
-            session.openAiCloseCode = code;
-            console.log('Disconnected from the OpenAI Realtime API');
-        });
-
-        openAiWs.on('error', (error) => {
-            session.openAiError = error.message;
-            console.error('Error in the OpenAI WebSocket:', error);
-        });
     });
 });
 
