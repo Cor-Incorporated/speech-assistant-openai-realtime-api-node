@@ -67,7 +67,7 @@ test('whisper confirmation keeps accepted leg connected and hangs up rejection',
 test('whisper identifies the company reception without exposing AI wording', () => {
     const body = buildWhisperTwiml({ summary: '資料請求', confirmUrl: 'https://voice.example/confirm' });
 
-    assert.match(body, /Cor\.株式会社のお電話受付からの引き継ぎ/);
+    assert.match(body, /Cor\.株式会社コールセンターからの引き継ぎ/);
     assert.doesNotMatch(body, /AI受付/);
 });
 

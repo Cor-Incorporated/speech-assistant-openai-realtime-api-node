@@ -69,7 +69,7 @@ const ADMIN_APP_INDEX_PATH = join(ADMIN_APP_DIST_DIR, 'index.html');
 const DEFAULT_SYSTEM_MESSAGE = [
     'あなたは日本のコールセンターで電話一次受付を担当するAIオペレーターです。',
     '必ず自然で丁寧な日本語だけで応答してください。英語では応答しません。',
-    '通常は「Cor.株式会社のお電話受付です」と名乗り、自分からAI・人工知能・システムとは名乗らないでください。AIかどうかを尋ねられた場合は正直に答え、希望があれば担当者へ引き継いでください。',
+    '通常は「Cor.株式会社コールセンターです」と名乗り、自分からAI・人工知能・システムとは名乗らないでください。AIかどうかを尋ねられた場合は正直に答え、希望があれば担当者へ引き継いでください。',
     '相手が話し始めたら自分の発話を止めて聞いてください。相手の発話に重ねて話さず、特に電話番号の途中で応答や質問を差し込まないでください。',
     '相手の発話が聞き取れない場合は、推測せず「恐れ入ります。もう一度お話しいただけますか」と確認してください。',
     '一度に複数の質問をせず、用件、名前、折り返し電話番号、希望日時などを一つずつ確認してください。',
@@ -136,7 +136,7 @@ const {
     RESEND_API_KEY = '',
     SYSTEM_MESSAGE = DEFAULT_SYSTEM_MESSAGE,
     SYSTEM_MESSAGE_FILE = '',
-    FIRST_MESSAGE = 'お電話ありがとうございます。Cor.株式会社のお電話受付です。ご用件をお聞かせください。',
+    FIRST_MESSAGE = 'お電話ありがとうございます。Cor.株式会社コールセンターです。ご用件をお聞かせください。',
     CALL_END_WORKFLOW_ENABLED = 'true',
     CALL_END_HANGUP_ENABLED = 'true',
     CALL_END_FINAL_PHRASE = '',
@@ -657,6 +657,37 @@ fastify.post('/handoff/dial-status', async (request, reply) => {
 fastify.register(async (fastify) => {
     fastify.get('/media-stream', { websocket: true }, async (connection, req) => {
         console.log('Media stream connected');
+        const pendingTwilioMessages = [];
+        let twilioMessageHandler = null;
+        let twilioCloseHandler = null;
+        let pendingTwilioClose = null;
+        const maxPendingTwilioMessages = 300;
+
+        // Twilio sends connected/start immediately after the WebSocket handshake.
+        // Install these listeners before any awaited runtime-settings lookup so the
+        // initial stream metadata cannot be lost on a cold start.
+        connection.on('message', (message) => {
+            if (twilioMessageHandler) {
+                twilioMessageHandler(message);
+                return;
+            }
+
+            if (pendingTwilioMessages.length < maxPendingTwilioMessages) {
+                pendingTwilioMessages.push(message);
+            } else {
+                console.warn('Dropping queued Twilio Media Stream message after buffer limit');
+            }
+        });
+
+        connection.on('close', (code, reason) => {
+            if (twilioCloseHandler) {
+                void twilioCloseHandler(code, reason);
+                return;
+            }
+
+            pendingTwilioClose = { code, reason };
+        });
+
         let realtimeSettings;
         try {
             realtimeSettings = await getEffectiveRealtimeSettings();
@@ -687,6 +718,52 @@ fastify.register(async (fastify) => {
         let pendingResponseAfterCurrent = false;
         let callEndTimer = null;
         let callEndMarkTimeout = null;
+        const pendingInboundAudio = [];
+        const pendingOutboundAudio = [];
+        const maxPendingAudioMessages = 300;
+
+        const sendAudioToOpenAi = (payload) => {
+            if (openAiWs.readyState !== WebSocket.OPEN || !payload) return false;
+
+            openAiWs.send(JSON.stringify({
+                type: 'input_audio_buffer.append',
+                audio: payload
+            }));
+            return true;
+        };
+
+        const flushPendingInboundAudio = () => {
+            while (openAiWs.readyState === WebSocket.OPEN && pendingInboundAudio.length > 0) {
+                sendAudioToOpenAi(pendingInboundAudio.shift());
+            }
+        };
+
+        const sendAudioToTwilio = (delta) => {
+            if (!delta || connection.readyState !== WebSocket.OPEN) return;
+
+            if (!session.streamSid) {
+                if (pendingOutboundAudio.length < maxPendingAudioMessages) {
+                    pendingOutboundAudio.push(delta);
+                } else {
+                    console.warn('Dropping queued outbound audio until Twilio stream start');
+                }
+                return;
+            }
+
+            connection.send(JSON.stringify({
+                event: 'media',
+                streamSid: session.streamSid,
+                media: { payload: Buffer.from(delta, 'base64').toString('base64') }
+            }));
+        };
+
+        const flushPendingOutboundAudio = () => {
+            if (!session.streamSid || connection.readyState !== WebSocket.OPEN) return;
+
+            while (pendingOutboundAudio.length > 0) {
+                sendAudioToTwilio(pendingOutboundAudio.shift());
+            }
+        };
 
         const requestCallEnd = ({ source, reason }) => {
             if (!CALL_END_CONFIG.workflowEnabled) return;
@@ -965,6 +1042,7 @@ fastify.register(async (fastify) => {
             console.log('Connected to the OpenAI Realtime API');
             setTimeout(() => {
                 sendSessionUpdate();
+                flushPendingInboundAudio();
                 // 通話開始時の挨拶を、顧客へ向けた日本語音声として生成する。
                 const queuedFirstMessage = {
                     type: 'conversation.item.create',
@@ -1086,12 +1164,7 @@ fastify.register(async (fastify) => {
                 }
 
                 if ((response.type === 'response.output_audio.delta' || response.type === 'response.audio.delta') && response.delta) {
-                    const audioDelta = {
-                        event: 'media',
-                        streamSid: session.streamSid,
-                        media: { payload: Buffer.from(response.delta, 'base64').toString('base64') }
-                    };
-                    connection.send(JSON.stringify(audioDelta));
+                    sendAudioToTwilio(response.delta);
                 }
             } catch (error) {
                 console.error('Error processing OpenAI message:', error.message);
@@ -1099,22 +1172,24 @@ fastify.register(async (fastify) => {
         });
 
         // Twilioからのメッセージを処理
-        connection.on('message', (message) => {
+        const handleTwilioMessage = (message) => {
             try {
-                const data = JSON.parse(message);
+                const data = JSON.parse(message.toString());
 
                 switch (data.event) {
                     case 'media':
-                        if (openAiWs.readyState === WebSocket.OPEN) {
-                            const audioAppend = {
-                                type: 'input_audio_buffer.append',
-                                audio: data.media.payload
-                            };
-
-                            openAiWs.send(JSON.stringify(audioAppend));
+                        if (data.media?.payload) {
+                            if (!sendAudioToOpenAi(data.media.payload)
+                                && pendingInboundAudio.length < maxPendingAudioMessages) {
+                                pendingInboundAudio.push(data.media.payload);
+                            }
                         }
                         break;
                     case 'start':
+                        if (!data.start?.streamSid) {
+                            console.warn('Twilio stream start message did not include streamSid');
+                            break;
+                        }
                         session.streamSid = data.start.streamSid;
                         session.callSid = data.start.callSid || session.callSid;
                         session.accountSid = data.start.accountSid || '';
@@ -1131,6 +1206,7 @@ fastify.register(async (fastify) => {
                             }
                         });
                         callLogSinks.recordStarted(session);
+                        flushPendingOutboundAudio();
                         break;
                     case 'mark':
                         if (data.mark?.name && data.mark.name === session.callEnd?.markName) {
@@ -1144,10 +1220,15 @@ fastify.register(async (fastify) => {
             } catch (error) {
                 console.error('Error parsing Twilio media message:', error.message);
             }
-        });
+        };
+
+        twilioMessageHandler = handleTwilioMessage;
+        for (const message of pendingTwilioMessages.splice(0)) {
+            handleTwilioMessage(message);
+        }
 
         // 接続が閉じられたときの処理
-        connection.on('close', async (code, reason) => {
+        const handleTwilioClose = async (code, reason) => {
             if (callEndTimer) clearTimeout(callEndTimer);
             if (callEndMarkTimeout) clearTimeout(callEndMarkTimeout);
             if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
@@ -1192,7 +1273,14 @@ fastify.register(async (fastify) => {
 
             // セッションのクリーンアップ
             sessions.delete(sessionId);
-        });
+        };
+
+        twilioCloseHandler = handleTwilioClose;
+        if (pendingTwilioClose) {
+            const { code, reason } = pendingTwilioClose;
+            pendingTwilioClose = null;
+            void handleTwilioClose(code, reason);
+        }
 
         // OpenAI WebSocketのエラー処理
         openAiWs.on('close', (code) => {
