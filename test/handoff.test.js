@@ -8,6 +8,7 @@ import {
     HandoffContextStore,
     isHandoffCallConnected,
     isNonHandoffBusinessCall,
+    isSalesBusinessCall,
     isContractRequest,
     shouldAutoHandoffGeneral,
     shouldAllowHumanHandoff,
@@ -126,11 +127,16 @@ test('handoff rejection forces parent Dial fallback even if Twilio reports compl
 });
 
 test('handoff policy blocks recruiting sales proposals but keeps contract requests eligible', () => {
-    assert.equal(isNonHandoffBusinessCall([
+    const salesTurns = [
         { role: 'user', text: '弊社でエンジニアの採用サポートをしており、紹介料を抑えてアサインできます。' }
-    ]), true);
+    ];
+    assert.equal(isNonHandoffBusinessCall(salesTurns), true);
+    assert.equal(isSalesBusinessCall(salesTurns), true);
     assert.equal(isNonHandoffBusinessCall([
         { role: 'user', text: 'システム開発を依頼したいので、見積もりを相談したいです。' }
+    ]), false);
+    assert.equal(isSalesBusinessCall([
+        { role: 'user', text: 'エンジニアを集めたイベントを開催したい相談です。' }
     ]), false);
 });
 
