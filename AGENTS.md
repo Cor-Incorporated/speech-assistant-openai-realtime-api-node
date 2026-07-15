@@ -5,6 +5,9 @@
 このリポジトリは、Twilio Voice / Media Streams と OpenAI Realtime API をつなぐ日本向け音声AI受付システムです。現時点の本体は `index.js` です。
 
 - `index.js`: Fastifyサーバー、Twilio webhook、Media Streams WebSocket、OpenAI Realtime接続
+- `lib/`: サーバーモジュール（通話ログ、管理APIルート、Realtimeモデル設定、入力ゲート、終話ワークフロー、セキュリティ）
+- `client/`: React管理UI（Vite + Tailwind、`/app/` で配信）
+- `test/`: `node --test` で実行するユニット/軽量結合テスト
 - `scripts/`: ローカル検証用スクリプト
 - `docs/`: ADR、実装計画、検証手順
 - `.env.example`: 環境変数のテンプレート
@@ -15,7 +18,9 @@
 - `npm ci`: lockfileに基づいて依存関係をインストールします。
 - `npm run start`: ローカルサーバーを起動します。
 - `npm run check`: `index.js` の構文チェックを実行します。
-- `npm test`: 現時点では `npm run check` を実行します。
+- `npm run check:frontend`: 管理UI（`client/`）のTypeScript型チェックを実行します。
+- `npm run build:frontend`: 管理UIをViteでビルドします。
+- `npm test`: `npm run check` + `npm run check:frontend` + `npm run build:frontend` を実行した後、`node --test` で `test/` のテストを実行します。
 - `npm run check:realtime`: OpenAI Realtimeへ接続し、GA形式の `session.update` を検証します。
 - `npm run smoke:local`: `/`, `/healthz`, `/incoming-call` を検証します。
 - `npm run smoke:media-stream`: Twilio Media Streams互換のWebSocket検証を行います。
