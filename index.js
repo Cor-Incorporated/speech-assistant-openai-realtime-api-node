@@ -51,7 +51,7 @@ import {
     classifyRealtimeConversation,
     COMPLEX_REALTIME_MODEL
 } from './lib/realtime-escalation.js';
-import { NotificationOutbox } from './lib/notification-outbox.js';
+import { buildCallSummaryEmailText, NotificationOutbox } from './lib/notification-outbox.js';
 import {
     buildDialStatusTwiml,
     buildDtmfGatewayTwiml,
@@ -1542,16 +1542,7 @@ fastify.register(async (fastify) => {
                 kind: 'call-summary',
                 callId: record.callSid,
                 subject: `【電話受付】${record.intent || '新しい通話受付'} ${record.callSid}`,
-                text: [
-                    `通話ID: ${record.callSid}`,
-                    `開始: ${record.startedAtJst || record.startedAt}`,
-                    `通話秒数: ${record.durationSeconds}`,
-                    `用件: ${record.intent || '未抽出'}`,
-                    `要約: ${record.summary || '未抽出'}`,
-                    `顧客名: ${record.customerName || '未確認'}`,
-                    `折り返し番号: ${record.customerPhoneNumber || '未確認'}`,
-                    `折り返し要否: ${record.callbackRequired ? '要' : '不要'}`
-                ].join('\n')
+                text: buildCallSummaryEmailText(record)
             });
             auditLog('call.completed', {
                 actor: 'twilio',
