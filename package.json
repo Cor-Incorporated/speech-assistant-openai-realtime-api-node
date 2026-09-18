@@ -8,12 +8,15 @@
     "dev": "node --watch index.js",
     "check": "node --check index.js",
     "check:frontend": "tsc -p client/tsconfig.json --noEmit",
+    "check:backend": "tsc -p tsconfig.backend.json --noEmit",
     "build:frontend": "vite build",
+    "build:backend": "tsc -p tsconfig.backend.json",
+    "eval:synthetic": "node scripts/eval-synthetic.js",
     "check:realtime": "node scripts/check-realtime.js",
     "benchmark:realtime-models": "node scripts/benchmark-realtime-models.js",
     "smoke:media-stream": "node scripts/smoke-media-stream.js",
     "smoke:local": "node scripts/smoke-local.js",
-    "test": "npm run check && npm run check:frontend && npm run build:frontend && node --test"
+    "test": "npm run check && npm run check:frontend && npm run build:frontend && npm run build:backend && node --test"
   },
   "keywords": [],
   "author": "",
@@ -31,14 +34,15 @@
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.0",
+    "@types/node": "^22.20.3",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "clsx": "^2.1.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
-    "tailwindcss": "^4.3.0",
     "tailwind-merge": "^3.5.0",
+    "tailwindcss": "^4.3.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.11"
   }
