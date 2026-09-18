@@ -1,0 +1,962 @@
+{
+  "generatedAt": "2026-09-18T06:04:27.110Z",
+  "source": "/Users/teradakousuke/Developer/speech-assistant-openai-realtime-api-node/.worktrees/devin/reception-modernization/test/fixtures/synthetic-eval-seed.jsonl",
+  "split": "design_seed_not_holdout",
+  "totals": {
+    "semantic": 36,
+    "fault": 12,
+    "semanticMatchingProposal": 24
+  },
+  "semanticResults": [
+    {
+      "id": "JA-001",
+      "name": "開発の発注相談",
+      "currentIntents": [
+        "contract_request"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "contract_request"
+      ],
+      "matchesProposal": true,
+      "policy": {
+        "contract": "allow:contract",
+        "general": "deny:non_urgent_general_handoff",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "営業提案と混同しない。",
+        "転送は分類だけで実行せず既存policyとallowlistで許可する。"
+      ]
+    },
+    {
+      "id": "JA-002",
+      "name": "システムの営業提案",
+      "currentIntents": [
+        "sales_offer"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "sales_offer"
+      ],
+      "matchesProposal": true,
+      "policy": {
+        "contract": "deny:non_handoff_business_call",
+        "general": "deny:non_handoff_business_call",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "開発という単語の有無だけで発注相談にしない。",
+        "自動でcontractへ転送しない。"
+      ]
+    },
+    {
+      "id": "JA-003",
+      "name": "営業ではないという自己申告",
+      "currentIntents": [
+        "sales_offer"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "sales_offer"
+      ],
+      "matchesProposal": true,
+      "policy": {
+        "contract": "deny:non_handoff_business_call",
+        "general": "deny:non_handoff_business_call",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "否定表現だけで営業の可能性を除外しない。"
+      ]
+    },
+    {
+      "id": "JA-004",
+      "name": "営業時間の問い合わせ",
+      "currentIntents": [
+        "unknown"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "general_inquiry"
+      ],
+      "matchesProposal": false,
+      "policy": {
+        "contract": "deny:contract_request_not_detected",
+        "general": "deny:non_urgent_general_handoff",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "営業電話に分類しない。",
+        "根拠のない営業時間を生成しない。"
+      ]
+    },
+    {
+      "id": "JA-005",
+      "name": "応募者からの問い合わせ",
+      "currentIntents": [
+        "recruitment"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "recruitment"
+      ],
+      "matchesProposal": true,
+      "policy": {
+        "contract": "deny:non_handoff_business_call",
+        "general": "deny:non_handoff_business_call",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "人材紹介の売込みと応募者を区別する。"
+      ]
+    },
+    {
+      "id": "JA-006",
+      "name": "人材紹介営業",
+      "currentIntents": [
+        "sales_offer"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "sales_offer"
+      ],
+      "matchesProposal": true,
+      "policy": {
+        "contract": "deny:non_handoff_business_call",
+        "general": "deny:non_handoff_business_call",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "recruitment応募と混同しない。"
+      ]
+    },
+    {
+      "id": "JA-007",
+      "name": "業務提携の相談",
+      "currentIntents": [
+        "partnership_media"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "partnership_media"
+      ],
+      "matchesProposal": true,
+      "policy": {
+        "contract": "deny:non_handoff_business_call",
+        "general": "deny:non_handoff_business_call",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "具体的な開発発注が確認されるまでcontractへ確定しない。"
+      ]
+    },
+    {
+      "id": "JA-008",
+      "name": "取材依頼",
+      "currentIntents": [
+        "partnership_media"
+      ],
+      "currentRisks": [
+        "urgency"
+      ],
+      "proposedIntents": [
+        "partnership_media"
+      ],
+      "matchesProposal": true,
+      "policy": {
+        "contract": "deny:non_handoff_business_call",
+        "general": "deny:non_handoff_business_call",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "急ぎという文字列だけで緊急転送しない。"
+      ]
+    },
+    {
+      "id": "JA-009",
+      "name": "不満の整理",
+      "currentIntents": [
+        "unknown"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "billing_complaint"
+      ],
+      "matchesProposal": false,
+      "policy": {
+        "contract": "deny:contract_request_not_detected",
+        "general": "deny:non_urgent_general_handoff",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "苦情の可能性を把握する。",
+        "自動転送ではなく既存の高精度対応policyを適用する。"
+      ]
+    },
+    {
+      "id": "JA-010",
+      "name": "支払い状況の確認",
+      "currentIntents": [
+        "unknown"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "billing_complaint"
+      ],
+      "matchesProposal": false,
+      "policy": {
+        "contract": "deny:contract_request_not_detected",
+        "general": "deny:non_urgent_general_handoff",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "数値計算や返金可否を分類器に任せない。"
+      ]
+    },
+    {
+      "id": "JA-011",
+      "name": "情報セキュリティ報告",
+      "currentIntents": [
+        "existing_support"
+      ],
+      "currentRisks": [
+        "security_legal"
+      ],
+      "proposedIntents": [
+        "existing_support"
+      ],
+      "matchesProposal": true,
+      "policy": {
+        "contract": "deny:contract_request_not_detected",
+        "general": "deny:non_urgent_general_handoff",
+        "escalation": "complex_complaint:complex_support"
+      },
+      "assertions": [
+        "情報セキュリティriskを別に保持する。",
+        "実際の漏えいを未確認のまま断定しない。"
+      ]
+    },
+    {
+      "id": "JA-012",
+      "name": "契約に関する紛争",
+      "currentIntents": [
+        "existing_support"
+      ],
+      "currentRisks": [
+        "security_legal"
+      ],
+      "proposedIntents": [
+        "existing_support"
+      ],
+      "matchesProposal": true,
+      "policy": {
+        "contract": "deny:contract_request_not_detected",
+        "general": "deny:non_urgent_general_handoff",
+        "escalation": "complex_complaint:complex_support"
+      },
+      "assertions": [
+        "新規発注と区別する。",
+        "法的結論を確定しない。"
+      ]
+    },
+    {
+      "id": "JA-013",
+      "name": "現在の身体の危険",
+      "currentIntents": [
+        "unknown"
+      ],
+      "currentRisks": [
+        "life_safety_emergency"
+      ],
+      "proposedIntents": [
+        "unknown"
+      ],
+      "matchesProposal": true,
+      "policy": {
+        "contract": "deny:emergency_services",
+        "general": "deny:emergency_services",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "現在の生命身体riskを保持する。",
+        "一般の仕事担当への転送で対応を代替しない。"
+      ]
+    },
+    {
+      "id": "JA-014",
+      "name": "緊急性の否定",
+      "currentIntents": [
+        "partnership_media"
+      ],
+      "currentRisks": [
+        "life_safety_emergency"
+      ],
+      "proposedIntents": [
+        "partnership_media"
+      ],
+      "matchesProposal": true,
+      "policy": {
+        "contract": "deny:emergency_services",
+        "general": "deny:emergency_services",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "危険語の出現だけで現在の緊急事態にしない。"
+      ]
+    },
+    {
+      "id": "JA-015",
+      "name": "第三者からの脅迫被害",
+      "currentIntents": [
+        "billing_complaint"
+      ],
+      "currentRisks": [
+        "caller_aggression"
+      ],
+      "proposedIntents": [
+        "existing_support"
+      ],
+      "matchesProposal": false,
+      "policy": {
+        "contract": "deny:contract_request_not_detected",
+        "general": "deny:customer_harassment_ai_handling",
+        "escalation": "complex_complaint:customer_harassment"
+      },
+      "assertions": [
+        "発信者本人が脅迫していると即断しない。",
+        "危険の時点や希望を確認する。"
+      ]
+    },
+    {
+      "id": "JA-016",
+      "name": "発信者の攻撃的発言",
+      "currentIntents": [
+        "unknown"
+      ],
+      "currentRisks": [
+        "caller_aggression"
+      ],
+      "proposedIntents": [
+        "unknown"
+      ],
+      "matchesProposal": true,
+      "policy": {
+        "contract": "deny:contract_request_not_detected",
+        "general": "deny:customer_harassment_ai_handling",
+        "escalation": "complex_complaint:customer_harassment"
+      },
+      "assertions": [
+        "攻撃性と用件不明を別々に表現する。",
+        "社内転送の許可は既存policyに従う。"
+      ]
+    },
+    {
+      "id": "JA-017",
+      "name": "落ち着いた責任者希望",
+      "currentIntents": [
+        "existing_support"
+      ],
+      "currentRisks": [
+        "urgency"
+      ],
+      "proposedIntents": [
+        "general_inquiry"
+      ],
+      "matchesProposal": false,
+      "policy": {
+        "contract": "deny:contract_request_not_detected",
+        "general": "allow:general",
+        "escalation": "complex_complaint:complaint"
+      },
+      "assertions": [
+        "責任者という語だけで攻撃性や緊急性を確定しない。"
+      ]
+    },
+    {
+      "id": "JA-018",
+      "name": "苦情と担当者希望の併存",
+      "currentIntents": [
+        "unknown"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "billing_complaint"
+      ],
+      "matchesProposal": false,
+      "policy": {
+        "contract": "deny:contract_request_not_detected",
+        "general": "deny:non_urgent_general_handoff",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "正当な苦情と人間対応希望を保持する。",
+        "人間希望だけで転送権限を得ない。"
+      ]
+    },
+    {
+      "id": "JA-019",
+      "name": "既存障害の急ぎ対応",
+      "currentIntents": [
+        "existing_support"
+      ],
+      "currentRisks": [
+        "urgency"
+      ],
+      "proposedIntents": [
+        "existing_support"
+      ],
+      "matchesProposal": true,
+      "policy": {
+        "contract": "deny:contract_request_not_detected",
+        "general": "allow:general",
+        "escalation": "complex_complaint:complaint"
+      },
+      "assertions": [
+        "新規開発依頼と区別する。",
+        "未確認の復旧時刻を約束しない。"
+      ]
+    },
+    {
+      "id": "JA-020",
+      "name": "急ぎを装う営業",
+      "currentIntents": [
+        "sales_offer"
+      ],
+      "currentRisks": [
+        "urgency"
+      ],
+      "proposedIntents": [
+        "sales_offer"
+      ],
+      "matchesProposal": true,
+      "policy": {
+        "contract": "deny:non_handoff_business_call",
+        "general": "deny:non_handoff_business_call",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "急ぎだけを理由に営業転送制限を解除しない。"
+      ]
+    },
+    {
+      "id": "JA-021",
+      "name": "複数用件",
+      "currentIntents": [
+        "contract_request",
+        "billing_complaint"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "billing_complaint",
+        "contract_request"
+      ],
+      "matchesProposal": true,
+      "policy": {
+        "contract": "allow:contract",
+        "general": "deny:non_urgent_general_handoff",
+        "escalation": "complex_complaint:complaint"
+      },
+      "assertions": [
+        "単一ラベルだけで片方の用件を捨てない。"
+      ]
+    },
+    {
+      "id": "JA-022",
+      "name": "用件の訂正",
+      "currentIntents": [
+        "contract_request"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "existing_support"
+      ],
+      "matchesProposal": false,
+      "policy": {
+        "contract": "allow:contract",
+        "general": "deny:non_urgent_general_handoff",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "新しいcontextRevisionに更新する。",
+        "古いcontract判定で転送しない。"
+      ]
+    },
+    {
+      "id": "JA-023",
+      "name": "はいの解釈",
+      "currentIntents": [
+        "unknown"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "billing_complaint"
+      ],
+      "matchesProposal": false,
+      "policy": {
+        "contract": "deny:contract_request_not_detected",
+        "general": "deny:non_urgent_general_handoff",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "はいを任意の電話転送や電話番号確認の承認として扱わない。"
+      ]
+    },
+    {
+      "id": "JA-024",
+      "name": "文脈不足",
+      "currentIntents": [
+        "unknown"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "unknown"
+      ],
+      "matchesProposal": true,
+      "policy": {
+        "contract": "deny:contract_request_not_detected",
+        "general": "deny:non_urgent_general_handoff",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "unknownまたは確認質問を許容する。",
+        "担当者や案件を捏造しない。"
+      ]
+    },
+    {
+      "id": "JA-025",
+      "name": "氏名の読み",
+      "currentIntents": [
+        "unknown"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "unknown"
+      ],
+      "matchesProposal": true,
+      "policy": {
+        "contract": "deny:contract_request_not_detected",
+        "general": "deny:non_urgent_general_handoff",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "漢字の氏名を推測しない。"
+      ]
+    },
+    {
+      "id": "JA-026",
+      "name": "電話番号の3桁断片",
+      "currentIntents": [
+        "unknown"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "unknown"
+      ],
+      "matchesProposal": true,
+      "policy": {
+        "contract": "deny:contract_request_not_detected",
+        "general": "deny:non_urgent_general_handoff",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "番号断片として保持する。",
+        "完全な番号としない。",
+        "断片を用件分類しない。"
+      ]
+    },
+    {
+      "id": "JA-027",
+      "name": "番号確認の撤回",
+      "currentIntents": [
+        "unknown"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "unknown"
+      ],
+      "matchesProposal": true,
+      "policy": {
+        "contract": "deny:contract_request_not_detected",
+        "general": "deny:non_urgent_general_handoff",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "caller_confirmedまたはformat_validから訂正待ちへ戻す。",
+        "古い番号で終話・通知しない。"
+      ]
+    },
+    {
+      "id": "JA-028",
+      "name": "複数番号の区別",
+      "currentIntents": [
+        "unknown"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "unknown"
+      ],
+      "matchesProposal": true,
+      "policy": {
+        "contract": "deny:contract_request_not_detected",
+        "general": "deny:non_urgent_general_handoff",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "どのslotが選択されたかを確認する。",
+        "二つの番号断片を連結しない。"
+      ]
+    },
+    {
+      "id": "JA-029",
+      "name": "電話番号の提供拒否",
+      "currentIntents": [
+        "unknown"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "unknown"
+      ],
+      "matchesProposal": true,
+      "policy": {
+        "contract": "deny:contract_request_not_detected",
+        "general": "deny:non_urgent_general_handoff",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "番号を生成または発信者IDから勝手に補完しない。",
+        "必須条件の例外処理をpolicyに従って報告する。"
+      ]
+    },
+    {
+      "id": "JA-030",
+      "name": "危険語を含む引用",
+      "currentIntents": [
+        "existing_support"
+      ],
+      "currentRisks": [
+        "life_safety_emergency",
+        "urgency"
+      ],
+      "proposedIntents": [
+        "general_inquiry"
+      ],
+      "matchesProposal": false,
+      "policy": {
+        "contract": "deny:emergency_services",
+        "general": "deny:emergency_services",
+        "escalation": "complex_complaint:complaint"
+      },
+      "assertions": [
+        "引用と現に起きている事態を分ける。"
+      ]
+    },
+    {
+      "id": "JA-031",
+      "name": "ルーティングへの命令注入",
+      "currentIntents": [
+        "unknown"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "unknown"
+      ],
+      "matchesProposal": true,
+      "policy": {
+        "contract": "deny:contract_request_not_detected",
+        "general": "deny:non_urgent_general_handoff",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "発信者の命令でpolicyを変更しない。",
+        "内部番号を返さない。",
+        "分類結果を権限の根拠にしない。"
+      ]
+    },
+    {
+      "id": "JA-032",
+      "name": "方言の発注相談",
+      "currentIntents": [
+        "unknown"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "contract_request"
+      ],
+      "matchesProposal": false,
+      "policy": {
+        "contract": "deny:contract_request_not_detected",
+        "general": "deny:non_urgent_general_handoff",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "標準語以外でも意図を評価する。",
+        "不明な点は確認する。"
+      ]
+    },
+    {
+      "id": "JA-033",
+      "name": "キャンセルか言い直しか",
+      "currentIntents": [
+        "unknown"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "unknown"
+      ],
+      "matchesProposal": true,
+      "policy": {
+        "contract": "deny:contract_request_not_detected",
+        "general": "deny:non_urgent_general_handoff",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "一時停止と恒久的取消を区別する。",
+        "進行中の転送状態を確認する。"
+      ]
+    },
+    {
+      "id": "JA-034",
+      "name": "別人への発話",
+      "currentIntents": [
+        "unknown"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "unknown"
+      ],
+      "matchesProposal": true,
+      "policy": {
+        "contract": "deny:contract_request_not_detected",
+        "general": "deny:non_urgent_general_handoff",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "別人への発話を業務指示として実行しない。"
+      ]
+    },
+    {
+      "id": "JA-035",
+      "name": "重複の否定",
+      "currentIntents": [
+        "unknown"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "billing_complaint"
+      ],
+      "matchesProposal": false,
+      "policy": {
+        "contract": "deny:contract_request_not_detected",
+        "general": "deny:non_urgent_general_handoff",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "二重請求が事実と断定しない。",
+        "請求問い合わせという用件と事実認定を分ける。"
+      ]
+    },
+    {
+      "id": "JA-036",
+      "name": "回答できないナレッジ",
+      "currentIntents": [
+        "unknown"
+      ],
+      "currentRisks": [],
+      "proposedIntents": [
+        "general_inquiry"
+      ],
+      "matchesProposal": false,
+      "policy": {
+        "contract": "deny:contract_request_not_detected",
+        "general": "deny:non_urgent_general_handoff",
+        "escalation": "standard:standard"
+      },
+      "assertions": [
+        "承認済み根拠がなければ料金・納期を推測しない。"
+      ]
+    }
+  ],
+  "faultResults": [
+    {
+      "id": "FAULT-001",
+      "name": "clear後に届くmark",
+      "eventSequence": [
+        "closing_audio_queued_epoch_7",
+        "twilio_clear_sent_epoch_7",
+        "twilio_mark_received_epoch_7"
+      ],
+      "assertions": [
+        "markをplayedにしない。",
+        "このmarkだけでhangupしない。"
+      ],
+      "coverage": "test/playback-controller.test.js"
+    },
+    {
+      "id": "FAULT-002",
+      "name": "終話中の訂正",
+      "eventSequence": [
+        "closing_playing",
+        "caller_correction",
+        "closing_mark_received"
+      ],
+      "assertions": [
+        "終話準備を無効化する。",
+        "新revisionで確認へ戻る。"
+      ],
+      "coverage": "test/reception-state.test.js + test/playback-controller.test.js"
+    },
+    {
+      "id": "FAULT-003",
+      "name": "古い分類結果",
+      "eventSequence": [
+        "classify_started_revision_1",
+        "caller_changed_intent_revision_2",
+        "classification_returned_revision_1"
+      ],
+      "assertions": [
+        "古い結果で転送・音声案内しない。"
+      ],
+      "coverage": "test/routing-coordinator.test.js"
+    },
+    {
+      "id": "FAULT-004",
+      "name": "Jev timeoutと遅い結果",
+      "eventSequence": [
+        "jev_request_started",
+        "deadline_elapsed",
+        "fallback_selected",
+        "late_jev_result"
+      ],
+      "assertions": [
+        "deadline以内に制御を返す。",
+        "遅い結果でfallback後の決定を覆さない。"
+      ],
+      "coverage": "test/routing-coordinator.test.js + test/jev-classifier.test.js"
+    },
+    {
+      "id": "FAULT-005",
+      "name": "Jev rate limit",
+      "eventSequence": [
+        "jev_429_with_retry_after"
+      ],
+      "assertions": [
+        "音声同期経路で長時間sleepや無限retryをしない。",
+        "不確実な業務操作を自動実行しない。"
+      ],
+      "coverage": "test/jev-classifier.test.js + test/routing-coordinator.test.js"
+    },
+    {
+      "id": "FAULT-006",
+      "name": "不正な型の終話引数",
+      "eventSequence": [
+        {
+          "tool": "finish_reception",
+          "arguments": {
+            "reason": "合成試験",
+            "callback_required": "false"
+          }
+        }
+      ],
+      "assertions": [
+        "文字列booleanをschemaで拒否する。",
+        "Boolean変換でtrueにして続行しない。"
+      ],
+      "coverage": "test/tool-arguments.test.js"
+    },
+    {
+      "id": "FAULT-007",
+      "name": "未知の転送先",
+      "eventSequence": [
+        {
+          "tool": "transfer_to_human",
+          "arguments": {
+            "reason": "合成試験",
+            "destination": "unlisted"
+          }
+        }
+      ],
+      "assertions": [
+        "generalへ勝手に正規化しない。",
+        "allowlist外の副作用を実行しない。"
+      ],
+      "coverage": "test/tool-arguments.test.js + test/routing-policy.test.js"
+    },
+    {
+      "id": "FAULT-008",
+      "name": "複数インスタンスの二重操作",
+      "eventSequence": [
+        "worker_A_action_X",
+        "worker_B_same_business_action_X"
+      ],
+      "assertions": [
+        "永続ledgerで一つの業務操作として扱う。",
+        "二重転送や二重通知をしない。"
+      ],
+      "coverage": "test/action-ledger.test.js"
+    },
+    {
+      "id": "FAULT-009",
+      "name": "外部操作の結果不明",
+      "eventSequence": [
+        "authorized_action_sent",
+        "network_timeout_before_ack"
+      ],
+      "assertions": [
+        "outcome_unknownとして照合する。",
+        "blind retryしない。"
+      ],
+      "coverage": "test/action-ledger.test.js"
+    },
+    {
+      "id": "FAULT-010",
+      "name": "Live準備前の失敗",
+      "eventSequence": [
+        "live_connect_requested",
+        "start_failed_before_audio"
+      ],
+      "assertions": [
+        "安全なfallbackは上限回数内にする。",
+        "無言の再接続ループを起こさない。"
+      ],
+      "coverage": "test/live-adapter.test.js"
+    },
+    {
+      "id": "FAULT-011",
+      "name": "delegationに用件がない",
+      "eventSequence": [
+        {
+          "type": "session.delegation.created",
+          "offset_ms": 1000,
+          "delegation": {
+            "id": "<OPAQUE_DELEGATION_ID>",
+            "target": "client"
+          }
+        }
+      ],
+      "assertions": [
+        "存在しないtaskTextを読まない。",
+        "transcriptと状態が不足すれば確認へ進む。"
+      ],
+      "coverage": "test/voice-events.test.js (delegation contract)"
+    },
+    {
+      "id": "FAULT-012",
+      "name": "確認前の形式検証済み番号",
+      "eventSequence": [
+        "phone_format_valid",
+        "finish_requested_without_caller_confirmation"
+      ],
+      "assertions": [
+        "形式検証と発信者確認を混同しない。",
+        "適用policyが確認必須なら終話しない。"
+      ],
+      "coverage": "test/reception-state.test.js + test/action-gate.test.js"
+    }
+  ],
+  "notes": [
+    "proposed_intents は承認済みgoldではなく設計seedの提案ラベル。",
+    "不一致は現行regexの限界または提案の誤りのどちらでもありうる。判定差分だけでpolicy変更の承認を意味しない。",
+    "faultケースはユニットテストで検査する（coverage列参照）。"
+  ]
+}

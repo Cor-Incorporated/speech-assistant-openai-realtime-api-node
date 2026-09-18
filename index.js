@@ -63,6 +63,7 @@ import {
 } from './lib/twiml.js';
 import { RuntimeSettingsStore } from './lib/runtime-settings-store.js';
 import { getRuntimeConfig } from './lib/runtime-config.js';
+import { createJevShadow } from './lib/jev-shadow.js';
 import {
     auditLog,
     getTwilioWebhookUrl,
@@ -241,6 +242,9 @@ const REALTIME_INPUT_GATE_CONFIG = buildRealtimeInputGateConfig({
 const SHOULD_GATE_REALTIME_INPUT = REALTIME_INPUT_GATE_CONFIG.enabled;
 const SHOULD_CREATE_RESPONSE_FROM_VAD = !SHOULD_GATE_REALTIME_INPUT && VAD_CREATE_RESPONSE === 'true';
 const SHOULD_INTERRUPT_RESPONSE = VAD_INTERRUPT_RESPONSE === 'true';
+// Shadow Jev classifier — null unless ROUTING_PROVIDER=jev_shadow and all
+// prerequisites (EXTERNAL_EVAL_ENABLED, API key) are met. Never affects calls.
+const jevShadow = createJevShadow();
 const callLogSinks = new CallLogSinks({
     firestoreEnabled: CALL_LOG_FIRESTORE_ENABLED,
     firestoreDatabaseId: CALL_LOG_FIRESTORE_DATABASE_ID,
@@ -1322,6 +1326,7 @@ fastify.register(async (fastify) => {
                         }
 
                         const classification = classifyRealtimeConversation(session.turns);
+                        jevShadow?.observe(session.turns, session.turns.length, classification);
                         if (
                             classification.tier === 'complex_complaint'
                             && activeRealtimeModel !== COMPLEX_REALTIME_MODEL
