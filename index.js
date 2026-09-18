@@ -65,6 +65,19 @@ import { RuntimeSettingsStore } from './lib/runtime-settings-store.js';
 import { getRuntimeConfig } from './lib/runtime-config.js';
 import { createJevShadow } from './lib/jev-shadow.js';
 import {
+    buildLiveSessionStart,
+    LIVE_WS_URL,
+    classifyLiveEvent,
+    createLiveAudioCodec,
+    createLiveDelegationTracker,
+    liveAudioAppend,
+    liveItemCreate,
+    liveResponseCreate,
+    liveSessionClose,
+    toLiveToolResultItem,
+    toRealtimeDoneEvent
+} from './lib/live-session.js';
+import {
     auditLog,
     getTwilioWebhookUrl,
     maskPhone,
@@ -100,6 +113,7 @@ const DEFAULT_SYSTEM_MESSAGE = [
     '契約解除・契約違反、法務・弁護士・訴訟、個人情報漏えい・不正アクセス・セキュリティ事故などは、通常受付で断定せず、高精度対応モードへ切り替えて事実関係と緊急性を整理してください。',
     '受託案件、開発・制作、業務委託、見積相談など仕事の依頼で人間対応が必要な場合は、transfer_to_humanをdestination="contract"で使用してください。',
     'それ以外で、急ぎ・緊急の人間対応が必要な場合だけtransfer_to_humanをdestination="general"で使用してください。緊急性のない相談、イベント、一般案内、代表者への取次ぎ依頼はコールセンターでヒアリングして終話してください。',
+    '「営業時間」「営業日」「定休日」「何時まで」は、営業・勧誘（セールス）ではなく、会社の営業時間への一般的な問い合わせです。営業勧誘の受付や引き継ぎと絶対に混同せず、確認できる範囲で案内し、不明な場合だけ折り返し受付にしてください。',
     'まだ社名や業務ナレッジが未設定のため、断定できない内容は「確認して折り返します」と案内してください。'
 ].join('\n');
 
@@ -123,6 +137,17 @@ const {
     VAD_EAGERNESS = 'low',
     VAD_CREATE_RESPONSE = 'true',
     VAD_INTERRUPT_RESPONSE = 'true',
+    VOICE_PROVIDER = 'realtime',
+    LIVE_MODEL = 'gpt-live-1',
+    LIVE_BACKEND_MODEL = 'gpt-5.6-luna',
+    LIVE_VOICE = 'marin',
+    LIVE_AUDIO_FORMAT = 'audio/pcmu',
+    LIVE_AUDIO_RATE = '8000',
+    LIVE_USER_TURN_GAP_MS = '900',
+    LIVE_AGENT_TURN_GAP_MS = '1100',
+    LIVE_START_TIMEOUT_MS = '8000',
+    LIVE_FALLBACK_TO_REALTIME = 'true',
+    LIVE_END_MARK_DELAY_MS = '1500',
     REALTIME_INPUT_GATE_ENABLED = 'true',
     REALTIME_INPUT_GATE_MIN_JAPANESE_CHARS = '2',
     REALTIME_INPUT_GATE_MIN_DIGITS = '4',
@@ -793,9 +818,33 @@ fastify.register(async (fastify) => {
                 }
             }
         );
+        const createLiveSocket = () => new WebSocket(LIVE_WS_URL, {
+            headers: {
+                Authorization: `Bearer ${OPENAI_API_KEY}`
+            }
+        });
         let activeRealtimeModel = realtimeSettings.realtimeModel;
         let activeRealtimeVoice = VOICE;
-        let openAiWs = createRealtimeSocket(activeRealtimeModel);
+        let providerMode = VOICE_PROVIDER === 'live' ? 'live' : 'realtime';
+        let openAiWs = providerMode === 'live'
+            ? createLiveSocket()
+            : createRealtimeSocket(activeRealtimeModel);
+        const liveState = {
+            started: false,
+            startTimer: null,
+            codec: createLiveAudioCodec({
+                inputFormatType: LIVE_AUDIO_FORMAT,
+                inputRate: Number(LIVE_AUDIO_RATE)
+            }),
+            delegation: createLiveDelegationTracker(),
+            userFrag: '',
+            userFragTimer: null,
+            agentFrag: '',
+            agentFragTimer: null,
+            outputAudioActive: false,
+            lastAudioDeltaAt: 0,
+            complexMode: false
+        };
         let realtimeSocketReady = false;
         let responseInProgress = false;
         let responseCreatePending = false;
@@ -808,6 +857,12 @@ fastify.register(async (fastify) => {
 
         const sendAudioToOpenAi = (payload) => {
             if (openAiWs.readyState !== WebSocket.OPEN || !payload) return false;
+
+            if (providerMode === 'live') {
+                if (!liveState.started) return false;
+                openAiWs.send(JSON.stringify(liveAudioAppend(liveState.codec.encodeInput(payload))));
+                return true;
+            }
 
             openAiWs.send(JSON.stringify({
                 type: 'input_audio_buffer.append',
@@ -1067,6 +1122,13 @@ fastify.register(async (fastify) => {
             if (!result.handled) return false;
 
             for (const output of result.outputs) {
+                if (providerMode === 'live') {
+                    const item = toLiveToolResultItem(output);
+                    if (item) {
+                        openAiWs.send(JSON.stringify(liveItemCreate(item, `tool_${item.call_id || Date.now()}`)));
+                    }
+                    continue;
+                }
                 openAiWs.send(JSON.stringify(output));
             }
             for (const callEndRequest of result.callEndRequests) {
@@ -1090,6 +1152,15 @@ fastify.register(async (fastify) => {
         const sendRealtimeResponseCreate = (reason) => {
             if (openAiWs.readyState !== WebSocket.OPEN) return;
 
+            if (providerMode === 'live') {
+                // Live responds continuously; response.create is only needed to
+                // continue delegated backend work after tool results, not per
+                // accepted user turn.
+                if (!liveState.started || String(reason).startsWith('accepted_transcript')) return;
+                openAiWs.send(JSON.stringify(liveResponseCreate(`rc_${Date.now()}`)));
+                return;
+            }
+
             if (responseInProgress || responseCreatePending) {
                 pendingResponseAfterCurrent = true;
                 if (SHOULD_LOG_REALTIME_EVENTS) {
@@ -1106,6 +1177,19 @@ fastify.register(async (fastify) => {
         };
 
         const interruptAssistantResponse = () => {
+            if (providerMode === 'live') {
+                // Live handles turn-taking server-side; only drop stale buffered
+                // Twilio playback so the caller is not talked over.
+                liveState.outputAudioActive = false;
+                if (session.streamSid && connection.readyState === WebSocket.OPEN) {
+                    connection.send(JSON.stringify({
+                        event: 'clear',
+                        streamSid: session.streamSid
+                    }));
+                }
+                return;
+            }
+
             if (responseInProgress && openAiWs.readyState === WebSocket.OPEN) {
                 openAiWs.send(JSON.stringify({ type: 'response.cancel' }));
             }
@@ -1227,6 +1311,340 @@ fastify.register(async (fastify) => {
                 pendingResponseAfterCurrent = false;
                 sendRealtimeResponseCreate('complex_model_fallback');
             }
+        };
+
+        const buildLiveInstructions = () => {
+            const firstMessage = session.handoffFallback
+                ? 'では、先ほどの内容について、まだ伺えていない情報を一つずつ確認させてください。'
+                : FIRST_MESSAGE;
+            return [
+                'あなたはCor.株式会社の電話受付を行う日本語の音声AIです。簡潔で丁寧な自然な日本語で話してください。',
+                `通話開始の最初の発話として、必ず一字一句そのまま「${firstMessage}」とだけ発話し、その後は発信者の返答を待ってください。`,
+                '業務上の判断・電話番号の検証・受付終了・担当者への転送可否は、すべてバックエンドに委譲してください。自分だけで判断せず、バックエンドの結果を自然な言葉で伝えてください。',
+                '「営業時間」「営業日」「定休日」「何時まで」は営業勧誘（セールス）ではなく、会社の営業時間への一般質問です。営業の受付や担当者への引き継ぎと混同しないでください。',
+                '内部の分類名・ツール名・判定理由は絶対に発話しないでください。',
+                session.handoffFallback
+                    ? 'この通話は担当者への転送が成立しなかった後の再受付です。転送はせず、「担当者が出なかったため、引き続きコールセンターで承ります」と自然に案内して受付を続けてください。'
+                    : ''
+            ].filter(Boolean).join('\n');
+        };
+
+        const buildLiveBackendInstructions = () => {
+            const fallbackInstructions = session.handoffFallback
+                ? [
+                    '',
+                    'これは担当者への転送が成立しなかった後の再受付です。',
+                    '担当者への転送toolは使わず、再転送もしないでください。',
+                    '先ほどの受付内容を踏まえ、まだ伺えていない情報を一つずつ確認してください。確認できたら内容を復唱し、折り返し要否を確認してから終話してください。',
+                    session.handoffSummary ? `先ほどの受付内容の要約（参考）: ${session.handoffSummary}` : ''
+                ].filter(Boolean).join('\n')
+                : '';
+            return `${RESOLVED_SYSTEM_MESSAGE}${fallbackInstructions ? `\n${fallbackInstructions}` : ''}`;
+        };
+
+        const finalizeLiveUserTurn = (reason) => {
+            if (liveState.userFragTimer) {
+                clearTimeout(liveState.userFragTimer);
+                liveState.userFragTimer = null;
+            }
+            const text = liveState.userFrag.trim();
+            liveState.userFrag = '';
+            if (!text) return;
+
+            const gateResult = evaluateRealtimeInputTranscript(text, REALTIME_INPUT_GATE_CONFIG);
+            if (!gateResult.accepted) {
+                if (SHOULD_LOG_REALTIME_EVENTS) {
+                    console.log(`Ignored live input transcript (${sessionId}): ${gateResult.reason}`);
+                }
+                return;
+            }
+
+            appendTurn(session, 'user', gateResult.normalized);
+            if (SHOULD_LOG_TRANSCRIPTS && gateResult.normalized) {
+                console.log(`User (${sessionId}): ${gateResult.normalized}`);
+            }
+
+            const classification = classifyRealtimeConversation(session.turns);
+            jevShadow?.observe(session.turns, session.turns.length, classification);
+
+            if (
+                classification.tier === 'complex_complaint'
+                && !liveState.complexMode
+                && openAiWs.readyState === WebSocket.OPEN
+            ) {
+                liveState.complexMode = true;
+                auditLog('live.backend_escalation.started', {
+                    actor: 'system',
+                    target: session.callSid || sessionId,
+                    metadata: { category: classification.category }
+                });
+                openAiWs.send(JSON.stringify({
+                    type: 'session.update',
+                    event_id: `upd_complex_${Date.now()}`,
+                    session: {
+                        delegation: {
+                            type: 'responses',
+                            responses: {
+                                instructions: `${buildLiveBackendInstructions()}\n${buildComplexRealtimeInstructions(classification.category)}`
+                            }
+                        }
+                    }
+                }));
+            }
+
+            const urgentHumanSupport = shouldAutoHandoffGeneral(session.turns)
+                && classification.tier !== 'complex_complaint';
+            if (
+                HANDOFF_CONFIG.enabled
+                && urgentHumanSupport
+                && !isEmergencyCall(session.turns)
+                && !session.handoff?.started
+                && !session.handoff?.starting
+                && !isNonHandoffBusinessCall(session.turns)
+            ) {
+                const urgentDestination = isContractRequest(session.turns)
+                    ? 'contract'
+                    : 'general';
+                session.handoff = {
+                    ...(session.handoff || {}),
+                    starting: true,
+                    trigger: 'urgent_human_support'
+                };
+                auditLog('handoff.auto_triggered', {
+                    actor: 'system',
+                    target: session.callSid || sessionId,
+                    metadata: {
+                        destination: urgentDestination,
+                        category: 'urgent_human_support',
+                        reason: `explicit_urgent_request_${reason}`
+                    }
+                });
+                void startHandoff({
+                    reason: '緊急の人間対応',
+                    destination: urgentDestination
+                });
+            }
+        };
+
+        const scheduleLiveUserTurnFinalize = () => {
+            if (liveState.userFragTimer) clearTimeout(liveState.userFragTimer);
+            liveState.userFragTimer = setTimeout(() => {
+                liveState.userFragTimer = null;
+                finalizeLiveUserTurn('gap');
+            }, Number(LIVE_USER_TURN_GAP_MS));
+        };
+
+        const finalizeLiveAgentTurn = (reason) => {
+            if (liveState.agentFragTimer) {
+                clearTimeout(liveState.agentFragTimer);
+                liveState.agentFragTimer = null;
+            }
+            const text = liveState.agentFrag.trim();
+            liveState.agentFrag = '';
+            liveState.outputAudioActive = false;
+            if (!text) return;
+
+            appendTurn(session, 'agent', text);
+            if (SHOULD_LOG_TRANSCRIPTS && text) console.log(`Agent (${sessionId}): ${text}`);
+            if (isTerminalAgentMessage(text, CALL_END_CONFIG)) {
+                requestCallEnd({
+                    source: 'terminal_phrase',
+                    reason: 'assistant_final_phrase'
+                });
+            }
+
+            // Live has no response.done; send the end-call mark after the last
+            // assistant turn so trailing audio flushes before Twilio echoes it.
+            if (session.callEnd?.requested && !session.callEnd?.completed) {
+                setTimeout(() => sendEndCallMark(`live_agent_turn_${reason}`), Number(LIVE_END_MARK_DELAY_MS));
+            }
+        };
+
+        const scheduleLiveAgentTurnFinalize = () => {
+            if (liveState.agentFragTimer) clearTimeout(liveState.agentFragTimer);
+            liveState.agentFragTimer = setTimeout(() => {
+                liveState.agentFragTimer = null;
+                finalizeLiveAgentTurn('gap');
+            }, Number(LIVE_AGENT_TURN_GAP_MS));
+        };
+
+        const handleLiveStartFailure = (reason) => {
+            if (providerMode !== 'live' || liveState.started) return;
+            auditLog('live.session.start_failed', {
+                actor: 'openai',
+                target: session.callSid || sessionId,
+                result: 'failure',
+                metadata: { reason }
+            });
+            console.error(`GPT-Live session failed to start (${reason}); falling back to Realtime`);
+
+            if (LIVE_FALLBACK_TO_REALTIME !== 'true') {
+                if (connection.readyState === WebSocket.OPEN) {
+                    connection.close(1011, 'live_start_failed');
+                }
+                return;
+            }
+
+            if (liveState.startTimer) {
+                clearTimeout(liveState.startTimer);
+                liveState.startTimer = null;
+            }
+            providerMode = 'realtime';
+            try {
+                if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close(1000, 'live_fallback');
+            } catch {
+                // socket may already be closed
+            }
+            openAiWs = createRealtimeSocket(activeRealtimeModel);
+            attachRealtimeSocket(openAiWs, { initial: true });
+        };
+
+        const attachLiveSocket = (socket) => {
+            socket.on('open', () => {
+                if (socket !== openAiWs) return;
+                console.log(`Connected to the GPT-Live API (${LIVE_MODEL})`);
+
+                const liveTools = [
+                    VALIDATE_CALLBACK_PHONE_TOOL,
+                    ...(session.handoffFallback ? [] : [TRANSFER_TO_HUMAN_TOOL].filter(Boolean)),
+                    ...(FINISH_RECEPTION_TOOL ? [FINISH_RECEPTION_TOOL] : [])
+                ].filter(Boolean);
+
+                socket.send(JSON.stringify(buildLiveSessionStart({
+                    model: LIVE_MODEL,
+                    voice: LIVE_VOICE,
+                    audioFormatType: LIVE_AUDIO_FORMAT,
+                    audioRate: Number(LIVE_AUDIO_RATE),
+                    instructions: buildLiveInstructions(),
+                    delegationResponses: {
+                        model: LIVE_BACKEND_MODEL,
+                        instructions: buildLiveBackendInstructions(),
+                        tools: liveTools,
+                        tool_choice: 'auto'
+                    }
+                })));
+
+                liveState.startTimer = setTimeout(() => {
+                    liveState.startTimer = null;
+                    handleLiveStartFailure('session_started_timeout');
+                }, Number(LIVE_START_TIMEOUT_MS));
+            });
+
+            socket.on('message', (data) => {
+                if (socket !== openAiWs) return;
+                try {
+                    const event = JSON.parse(data);
+                    const classified = classifyLiveEvent(event);
+
+                    if (SHOULD_LOG_REALTIME_EVENTS && classified.kind !== 'audio_delta' && classified.kind !== 'other') {
+                        console.log(`Received Live event: ${event.type}`);
+                    }
+
+                    switch (classified.kind) {
+                        case 'started':
+                            liveState.started = true;
+                            if (liveState.startTimer) {
+                                clearTimeout(liveState.startTimer);
+                                liveState.startTimer = null;
+                            }
+                            console.log(`GPT-Live session started (${event.session?.id || 'unknown'})`);
+                            auditLog('live.session.started', {
+                                actor: 'openai',
+                                target: session.callSid || sessionId,
+                                metadata: {
+                                    model: LIVE_MODEL,
+                                    backendModel: LIVE_BACKEND_MODEL,
+                                    audioFormat: LIVE_AUDIO_FORMAT,
+                                    passthrough: liveState.codec.passthrough
+                                }
+                            });
+                            flushPendingInboundAudio();
+                            break;
+
+                        case 'audio_delta':
+                            liveState.outputAudioActive = true;
+                            liveState.lastAudioDeltaAt = Date.now();
+                            sendAudioToTwilio(liveState.codec.decodeOutput(classified.delta));
+                            break;
+
+                        case 'input_transcript_delta':
+                            liveState.userFrag += classified.delta || '';
+                            scheduleLiveUserTurnFinalize();
+                            // Barge-in: the caller is saying something while
+                            // audio is still streaming; drop stale buffered
+                            // playback in Twilio. Recent-delta check avoids
+                            // clearing during natural pauses between phrases.
+                            if (liveState.outputAudioActive && Date.now() - liveState.lastAudioDeltaAt < 800) {
+                                interruptAssistantResponse();
+                            }
+                            break;
+
+                        case 'output_transcript_delta':
+                            liveState.agentFrag += classified.delta || '';
+                            scheduleLiveAgentTurnFinalize();
+                            break;
+
+                        case 'delegation_created':
+                            finalizeLiveUserTurn('delegation');
+                            auditLog('live.delegation.created', {
+                                actor: 'openai',
+                                target: session.callSid || sessionId,
+                                metadata: {
+                                    delegationId: classified.delegationId,
+                                    responseId: classified.responseId
+                                }
+                            });
+                            break;
+
+                        case 'response_event': {
+                            const completed = liveState.delegation.observeResponseEvent(
+                                classified.delegationId,
+                                classified.nested
+                            );
+                            if (completed?.calls?.length) {
+                                handleToolCalls(toRealtimeDoneEvent(completed.calls));
+                            }
+                            break;
+                        }
+
+                        case 'closed':
+                            auditLog('live.session.closed', {
+                                actor: 'openai',
+                                target: session.callSid || sessionId,
+                                metadata: { usage: classified.usage || null }
+                            });
+                            break;
+
+                        case 'error':
+                            console.error(`GPT-Live error: ${classified.error?.message || 'unknown'}`);
+                            if (!liveState.started) {
+                                handleLiveStartFailure(classified.error?.message || 'live_error');
+                            }
+                            break;
+
+                        default:
+                            break;
+                    }
+                } catch (error) {
+                    console.error('Error processing Live message:', error.message);
+                }
+            });
+
+            socket.on('close', (code) => {
+                if (socket === openAiWs) {
+                    liveState.started = false;
+                    session.openAiCloseCode = code;
+                    if (providerMode === 'live' && !session.callEnd?.completed) {
+                        handleLiveStartFailure(`socket_closed_${code}`);
+                    }
+                }
+                console.log(`Disconnected from the GPT-Live API (${code})`);
+            });
+
+            socket.on('error', (error) => {
+                if (socket === openAiWs) session.openAiError = error.message;
+                console.error('Error in the GPT-Live WebSocket:', error);
+            });
         };
 
         const attachRealtimeSocket = (socket, {
@@ -1445,7 +1863,11 @@ fastify.register(async (fastify) => {
             });
         };
 
-        attachRealtimeSocket(openAiWs, { initial: true });
+        if (providerMode === 'live') {
+            attachLiveSocket(openAiWs);
+        } else {
+            attachRealtimeSocket(openAiWs, { initial: true });
+        }
 
         // Twilioからのメッセージを処理
         const handleTwilioMessage = (message) => {
@@ -1528,7 +1950,19 @@ fastify.register(async (fastify) => {
         const handleTwilioClose = async (code, reason) => {
             if (callEndTimer) clearTimeout(callEndTimer);
             if (callEndMarkTimeout) clearTimeout(callEndMarkTimeout);
-            if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
+            if (liveState.userFragTimer) clearTimeout(liveState.userFragTimer);
+            if (liveState.agentFragTimer) clearTimeout(liveState.agentFragTimer);
+            if (liveState.startTimer) clearTimeout(liveState.startTimer);
+            if (openAiWs.readyState === WebSocket.OPEN) {
+                if (providerMode === 'live' && liveState.started) {
+                    try {
+                        openAiWs.send(JSON.stringify(liveSessionClose(`close_${sessionId}`)));
+                    } catch {
+                        // best effort: usage finalization only
+                    }
+                }
+                openAiWs.close();
+            }
             session.endedAt = new Date();
             session.status = 'completed';
             session.disconnectReason = reason?.toString() || `twilio_ws_close_${code}`;
