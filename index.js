@@ -84,6 +84,15 @@ import {
     shouldValidateTwilioSignature,
     validateTwilioSignature
 } from './lib/security.js';
+import { createStreamToken, verifyMediaStreamRequest } from './lib/stream-auth.js';
+import { createActionGateRuntime } from './lib/action-gate-runtime.js';
+import { initAdminV2Services } from './lib/admin-v2-runtime.js';
+import {
+    initKnowledgeTool,
+    getKnowledgeToolDef,
+    findKnowledgeToolCalls,
+    executeKnowledgeCall
+} from './lib/knowledge-tool-runtime.js';
 
 // .envファイルから環境変数を読み込む
 dotenv.config();
@@ -148,6 +157,8 @@ const {
     LIVE_START_TIMEOUT_MS = '8000',
     LIVE_FALLBACK_TO_REALTIME = 'true',
     LIVE_END_MARK_DELAY_MS = '1500',
+    LIVE_CLOSE_DRAIN_MS = '3000',
+    CALL_GATE_REQUIRED = 'true',
     REALTIME_INPUT_GATE_ENABLED = 'true',
     REALTIME_INPUT_GATE_MIN_JAPANESE_CHARS = '2',
     REALTIME_INPUT_GATE_MIN_DIGITS = '4',
@@ -157,6 +168,7 @@ const {
     LOG_OPENAI_RESPONSES = 'false',
     TWILIO_AUTH_TOKEN = '',
     TWILIO_SIGNATURE_VALIDATION_ENABLED = 'false',
+    TWILIO_STREAM_AUTH_ENABLED = 'true',
     TWILIO_WEBHOOK_URL = '',
     TWILIO_PUBLIC_BASE_URL = '',
     DTMF_GATEWAY_ENABLED = 'false',
@@ -270,6 +282,7 @@ const SHOULD_INTERRUPT_RESPONSE = VAD_INTERRUPT_RESPONSE === 'true';
 // Shadow Jev classifier — null unless ROUTING_PROVIDER=jev_shadow and all
 // prerequisites (EXTERNAL_EVAL_ENABLED, API key) are met. Never affects calls.
 const jevShadow = createJevShadow();
+const actionGate = createActionGateRuntime();
 const callLogSinks = new CallLogSinks({
     firestoreEnabled: CALL_LOG_FIRESTORE_ENABLED,
     firestoreDatabaseId: CALL_LOG_FIRESTORE_DATABASE_ID,
@@ -353,6 +366,31 @@ fastify.register(registerAdminRoutes, {
     auditLog
 });
 
+// Admin v2 — knowledge/calls/escalations CRUD with per-route permissions,
+// If-Match versioning, and PII projection. Services come from the compiled
+// backend; when dist-backend is missing the routes are not registered and
+// the legacy admin API keeps working.
+const adminV2 = await initAdminV2Services({ log: console });
+if (adminV2.loaded) {
+    const { registerAdminV2Routes } = await import('./lib/admin-v2-routes.js');
+    fastify.register(registerAdminV2Routes, {
+        adminAuth,
+        knowledgeService: adminV2.knowledgeService,
+        knowledgeRepository: adminV2.knowledgeRepo,
+        knowledgeReader: adminV2.knowledgeReader,
+        callService: adminV2.callService,
+        escalationService: adminV2.escalationService
+    });
+} else {
+    console.warn('admin v2 routes disabled: backend services failed to initialize');
+}
+
+// Voice knowledge tool — reads only the current published release through
+// the same repository the admin API writes to. A failed init simply means
+// the tool is never advertised to the provider.
+await initKnowledgeTool({ knowledgeRepo: adminV2.knowledgeRepo ?? null, log: console });
+const KNOWLEDGE_TOOL_DEF = getKnowledgeToolDef();
+
 fastify.post('/api/admin/notifications/retry/:outboxId', {
     preHandler: requireAdminAppAuth
 }, async (request, reply) => {
@@ -414,16 +452,16 @@ const summarizeExtractionForLog = (extracted = {}) => ({
     summaryLength: String(extracted.summary || '').length
 });
 
-const appendTurn = (session, role, text) => {
+const appendTurn = (session, role, text, { provisional = false } = {}) => {
     const normalizedText = String(text || '').trim();
     if (!normalizedText || normalizedText === 'Agent message not found') return;
 
     const lastTurn = session.turns.at(-1);
-    if (lastTurn?.role === role && lastTurn.text === normalizedText) return;
+    if (lastTurn?.role === role && lastTurn.text === normalizedText && lastTurn.provisional === provisional) return;
 
     const label = role === 'agent' ? 'Agent' : 'User';
-    session.transcript += `${label}: ${normalizedText}\n`;
-    session.turns.push({ role, text: normalizedText, at: new Date().toISOString() });
+    session.transcript += `${label}: ${normalizedText}${provisional ? ' [provisional]' : ''}\n`;
+    session.turns.push({ role, text: normalizedText, at: new Date().toISOString(), provisional });
 };
 
 const buildTurnDetectionConfig = () => {
@@ -489,6 +527,7 @@ const buildRealtimeSessionConfig = ({
 
     session.tools = [
         VALIDATE_CALLBACK_PHONE_TOOL,
+        ...(KNOWLEDGE_TOOL_DEF ? [KNOWLEDGE_TOOL_DEF] : []),
         ...(TRANSFER_TO_HUMAN_TOOL && !handoffFallback ? [TRANSFER_TO_HUMAN_TOOL] : []),
         ...(FINISH_RECEPTION_TOOL ? [FINISH_RECEPTION_TOOL] : [])
     ];
@@ -584,7 +623,8 @@ fastify.all('/incoming-call', async (request, reply) => {
     const mediaStreamTwiml = buildMediaStreamTwimlWithParams({
         host: request.headers.host,
         from,
-        to
+        to,
+        streamToken: createStreamToken({ callSid, secret: TWILIO_AUTH_TOKEN })
     });
     const twimlResponse = DTMF_GATEWAY_CONFIG.enabled
         ? buildDtmfGatewayTwiml({
@@ -612,7 +652,8 @@ fastify.all('/gateway/route', async (request, reply) => {
     const fallbackTwiml = buildMediaStreamTwimlWithParams({
         host: request.headers.host,
         from: request.body?.From || '',
-        to: request.body?.To || ''
+        to: request.body?.To || '',
+        streamToken: createStreamToken({ callSid: request.body?.CallSid || callSid, secret: TWILIO_AUTH_TOKEN })
     });
     const digits = request.body?.Digits || request.query?.digits || 'none';
     const twimlResponse = buildGatewayRouteTwiml({
@@ -737,7 +778,8 @@ fastify.post('/handoff/dial-status', async (request, reply) => {
             from: request.body?.From || '',
             to: request.body?.To || '',
             handoffFallback: true,
-            introMessage: '担当者におつなぎできなかったため、引き続きコールセンターでご用件を確認いたします。'
+            introMessage: '担当者におつなぎできなかったため、引き続きコールセンターでご用件を確認いたします。',
+            streamToken: createStreamToken({ callSid, secret: TWILIO_AUTH_TOKEN })
         });
     } else {
         await handoffContextStore.update(callSid, { status: 'connected', dialCallStatus: 'completed' });
@@ -758,6 +800,28 @@ fastify.post('/handoff/dial-status', async (request, reply) => {
 // メディアストリーム用のWebSocketルート
 fastify.register(async (fastify) => {
     fastify.get('/media-stream', { websocket: true }, async (connection, req) => {
+        // Access boundary: the upgrade must carry the stream token issued by a
+        // signature-verified webhook. Rejected connections close before any
+        // provider socket is created — an unauthenticated stream can never
+        // reach OpenAI.
+        const streamAuth = verifyMediaStreamRequest(req, {
+            secret: TWILIO_AUTH_TOKEN,
+            enabled: TWILIO_STREAM_AUTH_ENABLED
+        });
+        if (!streamAuth.ok) {
+            auditLog('twilio.media_stream.rejected', {
+                actor: 'unknown',
+                target: 'media-stream',
+                result: 'failure',
+                metadata: { reason: streamAuth.reason }
+            });
+            connection.close(4403, 'forbidden');
+            return;
+        }
+        if (streamAuth.bypassed) {
+            console.warn('TWILIO_STREAM_AUTH_ENABLED=false — unauthenticated media streams accepted (development only)');
+        }
+        const boundCallSid = streamAuth.callSid || '';
         console.log('Media stream connected');
         const pendingTwilioMessages = [];
         let twilioMessageHandler = null;
@@ -798,7 +862,7 @@ fastify.register(async (fastify) => {
             realtimeSettings = await getEffectiveRealtimeSettings({});
         }
 
-        const sessionId = req.headers['x-twilio-call-sid'] || `session_${Date.now()}`;
+        const sessionId = boundCallSid || req.headers['x-twilio-call-sid'] || `session_${Date.now()}`;
         let session = sessions.get(sessionId) || {
             id: sessionId,
             callSid: sessionId,
@@ -810,6 +874,19 @@ fastify.register(async (fastify) => {
         };
         sessions.set(sessionId, session);
 
+        // Common call lifecycle. Provider (re)starts, delayed tool work and
+        // timers must all check this — nothing may start a provider after
+        // handoff, caller disconnect, or normal close.
+        const callLifecycle = {
+            phase: 'starting' // starting -> active -> handoff|closing -> closed
+        };
+        session.lifecycle = callLifecycle.phase;
+
+        // Playback epoch: every Twilio `clear` invalidates marks emitted before
+        // it, because Twilio still echoes cleared marks. A stale mark echo must
+        // never satisfy the end-call playback check.
+        session.playback = session.playback || { epoch: 0 };
+
         const createRealtimeSocket = (model) => new WebSocket(
             `wss://api.openai.com/v1/realtime?model=${encodeURIComponent(model)}`,
             {
@@ -818,14 +895,36 @@ fastify.register(async (fastify) => {
                 }
             }
         );
-        const createLiveSocket = () => new WebSocket(LIVE_WS_URL, {
+        const createLiveSocket = () => new WebSocket(process.env.OPENAI_LIVE_WS_URL || LIVE_WS_URL, {
             headers: {
                 Authorization: `Bearer ${OPENAI_API_KEY}`
             }
         });
         let activeRealtimeModel = realtimeSettings.realtimeModel;
         let activeRealtimeVoice = VOICE;
+        // Codec contract is validated up front — an unsupported format/rate
+        // combination must never reach the provider as silent audio garbage.
+        const liveAudioConfigError = (() => {
+            const rate = Number(LIVE_AUDIO_RATE);
+            if (LIVE_AUDIO_FORMAT === 'audio/pcmu') {
+                return rate === 8000 ? '' : 'audio/pcmu requires rate 8000 (G.711 is 8 kHz)';
+            }
+            if (LIVE_AUDIO_FORMAT === 'audio/pcm') {
+                return [8000, 16000, 24000].includes(rate) ? '' : `unsupported audio/pcm rate ${rate}`;
+            }
+            return `unsupported LIVE_AUDIO_FORMAT ${LIVE_AUDIO_FORMAT}`;
+        })();
         let providerMode = VOICE_PROVIDER === 'live' ? 'live' : 'realtime';
+        if (providerMode === 'live' && liveAudioConfigError) {
+            auditLog('live.config.rejected', {
+                actor: 'system',
+                target: sessionId,
+                result: 'failure',
+                metadata: { reason: liveAudioConfigError, fallback: 'realtime' }
+            });
+            console.error(`LIVE_AUDIO config invalid: ${liveAudioConfigError}; falling back to realtime`);
+            providerMode = 'realtime';
+        }
         let openAiWs = providerMode === 'live'
             ? createLiveSocket()
             : createRealtimeSocket(activeRealtimeModel);
@@ -843,7 +942,12 @@ fastify.register(async (fastify) => {
             agentFragTimer: null,
             outputAudioActive: false,
             lastAudioDeltaAt: 0,
-            complexMode: false
+            complexMode: false,
+            complexModeEventId: '',
+            everStarted: false,
+            closedResolver: null,
+            drainTimer: null,
+            closeSent: false
         };
         let realtimeSocketReady = false;
         let responseInProgress = false;
@@ -933,19 +1037,59 @@ fastify.register(async (fastify) => {
             };
 
             if (CALL_END_CONFIG.hangupEnabled) {
-                try {
-                    twilioResult = await updateTwilioCallStatus({
-                        accountSid: session.accountSid,
-                        callSid: session.callSid,
-                        authToken: TWILIO_AUTH_TOKEN
+                // Every Twilio REST side effect passes the shared ActionGate:
+                // lifecycle, revision and idempotency are checked in one place.
+                const gateVerdict = await actionGate.evaluate({
+                    actionId: `call_end:${session.callSid || sessionId}`,
+                    kind: 'call_end',
+                    target: 'twilio_call',
+                    targetRevision: session.turns.length,
+                    facts: {
+                        allowedKinds: ['call_end'],
+                        allowedTargets: ['twilio_call'],
+                        policyAllows: true,
+                        confirmationSatisfied: true,
+                        currentRevision: session.turns.length,
+                        lifecyclePhase: callLifecycle.phase
+                    }
+                });
+
+                if (!gateVerdict.allow) {
+                    twilioResult = { ok: false, skipped: true, reason: `gate_denied:${gateVerdict.reason}` };
+                    auditLog('call.end.gate_denied', {
+                        actor: 'system',
+                        target: session.callSid || sessionId,
+                        result: 'failure',
+                        metadata: { reason: gateVerdict.reason }
                     });
-                } catch (error) {
-                    twilioResult = {
-                        ok: false,
-                        skipped: false,
-                        reason: 'twilio_api_exception'
-                    };
-                    console.error(`Failed to complete Twilio call ${session.callSid}: ${error.message}`);
+                } else {
+                    const ledger = gateVerdict.ledger;
+                    const actionId = gateVerdict.actionId;
+                    try {
+                        if (ledger) await ledger.markRunning(actionId);
+                        twilioResult = await updateTwilioCallStatus({
+                            accountSid: session.accountSid,
+                            callSid: session.callSid,
+                            authToken: TWILIO_AUTH_TOKEN
+                        });
+                        if (ledger) {
+                            await ledger.complete(
+                                actionId,
+                                twilioResult.ok ? 'succeeded' : 'failed',
+                                twilioResult.ok ? `status_${twilioResult.statusCode}` : (twilioResult.reason || 'failed')
+                            );
+                        }
+                    } catch (error) {
+                        twilioResult = {
+                            ok: false,
+                            skipped: false,
+                            reason: 'twilio_api_exception'
+                        };
+                        // The hangup may have reached Twilio — mark unknown so
+                        // no blind retry double-executes it.
+                        if (ledger) await ledger.complete(actionId, 'outcome_unknown', error.message);
+                        console.error(`Failed to complete Twilio call ${session.callSid}: ${error.message}`);
+                    }
                 }
             }
 
@@ -981,6 +1125,54 @@ fastify.register(async (fastify) => {
             }, CALL_END_CONFIG.graceMs);
         };
 
+        // A caller correction/interruption while the end-of-call workflow is
+        // pending revokes it: the conversation demonstrably continued, so the
+        // recorded request, its mark and every timer are invalidated together.
+        const revokeCallEnd = (trigger) => {
+            if (!session.callEnd?.requested || session.callEnd?.completed || session.callEnd?.revoked) return false;
+            if (callEndTimer) {
+                clearTimeout(callEndTimer);
+                callEndTimer = null;
+            }
+            if (callEndMarkTimeout) {
+                clearTimeout(callEndMarkTimeout);
+                callEndMarkTimeout = null;
+            }
+            session.callEnd = {
+                ...(session.callEnd || {}),
+                requested: false,
+                revoked: true,
+                revokedAt: new Date().toISOString(),
+                revokedBy: trigger,
+                markName: null,
+                markEpoch: null
+            };
+            auditLog('call.end.revoked', {
+                actor: 'system',
+                target: session.callSid || sessionId,
+                metadata: { trigger }
+            });
+            return true;
+        };
+
+        // Every Twilio `clear` invalidates marks emitted before it — Twilio
+        // echoes cleared marks back, so only marks from the current epoch may
+        // satisfy the end-call playback check.
+        const invalidatePlaybackMarks = (reason) => {
+            session.playback.epoch += 1;
+            if (session.callEnd?.markName) {
+                session.callEnd.markName = null;
+                session.callEnd.markEpoch = null;
+                if (callEndMarkTimeout) {
+                    clearTimeout(callEndMarkTimeout);
+                    callEndMarkTimeout = null;
+                }
+                if (SHOULD_LOG_REALTIME_EVENTS) {
+                    console.log(`Invalidated end-call mark after clear (${reason})`);
+                }
+            }
+        };
+
         const sendEndCallMark = (reason) => {
             if (
                 !CALL_END_CONFIG.workflowEnabled
@@ -998,6 +1190,7 @@ fastify.register(async (fastify) => {
 
             const markName = `end_call_${Date.now()}`;
             session.callEnd.markName = markName;
+            session.callEnd.markEpoch = session.playback.epoch;
             session.callEnd.markSentAt = new Date().toISOString();
             connection.send(JSON.stringify({
                 event: 'mark',
@@ -1012,7 +1205,10 @@ fastify.register(async (fastify) => {
         };
 
         const startHandoff = async ({ reason, destination = 'general' } = {}) => {
-            if (session.handoff?.started) return;
+            // Atomic claim: the starting flag is set synchronously so a second
+            // trigger racing through the same session cannot double-dial.
+            if (session.handoff?.started || session.handoff?.starting) return;
+            session.handoff = { ...(session.handoff || {}), starting: true };
 
             const callSid = session.callSid || session.id;
             const selectedDestination = HANDOFF_CONFIG.destinationNumbers[destination]
@@ -1036,6 +1232,39 @@ fastify.register(async (fastify) => {
 
             try {
                 await handoffContextStore.save(callSid, context);
+
+                // The transfer TwiML update is a Twilio REST side effect —
+                // it runs only after the shared ActionGate verifies lifecycle,
+                // revision, destination allowlist and idempotency.
+                const gateVerdict = await actionGate.evaluate({
+                    actionId: `handoff_start:${callSid}:${selectedDestination}`,
+                    kind: 'handoff_start',
+                    target: selectedDestination,
+                    targetRevision: session.turns.length,
+                    facts: {
+                        allowedKinds: ['handoff_start'],
+                        allowedTargets: ['contract', 'general'],
+                        policyAllows: true,
+                        confirmationSatisfied: true,
+                        currentRevision: session.turns.length,
+                        lifecyclePhase: callLifecycle.phase
+                    }
+                });
+                if (!gateVerdict.allow) {
+                    session.handoff = { started: false, starting: false, failed: true, reason: `gate_denied:${gateVerdict.reason}` };
+                    auditLog('handoff.start.failed', {
+                        actor: 'system',
+                        target: callSid,
+                        result: 'failure',
+                        metadata: { reason: `gate_denied:${gateVerdict.reason}` }
+                    });
+                    sendRealtimeResponseCreate('handoff_gate_denied');
+                    return;
+                }
+                const ledger = gateVerdict.ledger;
+                const actionId = gateVerdict.actionId;
+                if (ledger) await ledger.markRunning(actionId);
+
                 const twiml = buildHandoffDialTwiml({
                     callSid,
                     numbers: recipient ? [recipient] : [],
@@ -1051,9 +1280,16 @@ fastify.register(async (fastify) => {
                     authToken: TWILIO_AUTH_TOKEN,
                     twiml
                 });
+                if (ledger) {
+                    await ledger.complete(
+                        actionId,
+                        result.ok ? 'succeeded' : 'failed',
+                        result.ok ? `status_${result.statusCode}` : (result.reason || 'failed')
+                    );
+                }
 
                 if (!result.ok) {
-                    session.handoff = { started: false, failed: true, reason: result.reason || 'twilio_update_failed' };
+                    session.handoff = { started: false, starting: false, failed: true, reason: result.reason || 'twilio_update_failed' };
                     auditLog('handoff.start.failed', {
                         actor: 'system',
                         target: callSid,
@@ -1066,9 +1302,12 @@ fastify.register(async (fastify) => {
 
                 session.handoff = {
                     started: true,
+                    starting: false,
                     reason: context.reason,
                     startedAt: new Date().toISOString()
                 };
+                callLifecycle.phase = 'handoff';
+                session.lifecycle = callLifecycle.phase;
                 auditLog('handoff.start.succeeded', {
                     actor: 'system',
                     target: callSid,
@@ -1082,7 +1321,7 @@ fastify.register(async (fastify) => {
                 if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
                 if (connection.readyState === WebSocket.OPEN) connection.close(1000, 'handoff_started');
             } catch (error) {
-                session.handoff = { started: false, failed: true, reason: 'handoff_exception' };
+                session.handoff = { started: false, starting: false, failed: true, reason: 'handoff_exception' };
                 auditLog('handoff.start.failed', {
                     actor: 'system',
                     target: callSid,
@@ -1094,11 +1333,61 @@ fastify.register(async (fastify) => {
             }
         };
 
+        // Knowledge lookups are async (release manifest read) — they run
+        // BEFORE the synchronous tool-flow handler so every output reaches
+        // the provider before the shared response.create. The result also
+        // records which release answered the call for later audit.
+        const handleKnowledgeToolCalls = async (event) => {
+            if (!KNOWLEDGE_TOOL_DEF) return false;
+            const calls = findKnowledgeToolCalls(event);
+            if (calls.length === 0) return false;
+            for (const toolCall of calls) {
+                try {
+                    const output = await executeKnowledgeCall(toolCall);
+                    const meta = output._meta;
+                    delete output._meta;
+                    auditLog('knowledge.lookup', {
+                        actor: 'voice_tool',
+                        target: session.callSid || sessionId,
+                        result: meta.status,
+                        metadata: { releaseId: meta.releaseId, stale: meta.stale }
+                    });
+                    session.knowledgeLookups = session.knowledgeLookups || [];
+                    session.knowledgeLookups.push({ releaseId: meta.releaseId, status: meta.status });
+                    if (providerMode === 'live') {
+                        const item = toLiveToolResultItem(output);
+                        if (item) {
+                            openAiWs.send(JSON.stringify(liveItemCreate(item, `tool_${item.call_id || Date.now()}`)));
+                        }
+                        continue;
+                    }
+                    if (openAiWs.readyState === WebSocket.OPEN) {
+                        openAiWs.send(JSON.stringify(output));
+                    }
+                } catch (error) {
+                    auditLog('knowledge.lookup', {
+                        actor: 'voice_tool',
+                        target: session.callSid || sessionId,
+                        result: 'failure',
+                        metadata: { reason: error.message }
+                    });
+                }
+            }
+            return true;
+        };
+
         const handleToolCalls = (event) => {
             const nonHandoffBusinessCall = isNonHandoffBusinessCall(session.turns);
             const complexSupportCallbackRequired = isComplaintCall(session.turns);
             const requireBusinessCallback = (nonHandoffBusinessCall && !isSalesBusinessCall(session.turns))
                 || complexSupportCallbackRequired;
+            // Transfer authority must not depend on the Realtime model socket
+            // state — Live escalates through delegation instructions instead.
+            const complexModeActive = providerMode === 'live'
+                ? liveState.complexMode
+                : activeRealtimeModel === COMPLEX_REALTIME_MODEL
+                    || (session.modelEscalation?.status === 'active'
+                        && ['complaint', 'complex_support'].includes(session.modelEscalation?.category));
             const result = handleRealtimeToolCalls({
                 event,
                 state: session,
@@ -1110,9 +1399,7 @@ fastify.register(async (fastify) => {
                     requireBusinessCallback,
                     enforceRoutingPolicy: true
                 },
-                allowComplexComplaintHandoff: activeRealtimeModel === COMPLEX_REALTIME_MODEL
-                    || session.modelEscalation?.status === 'active'
-                    && ['complaint', 'complex_support'].includes(session.modelEscalation?.category),
+                allowComplexComplaintHandoff: complexModeActive,
                 onPhoneValidation: (metadata) => auditLog('callback_phone.validation', {
                     actor: 'realtime',
                     target: session.callSid || sessionId,
@@ -1182,6 +1469,7 @@ fastify.register(async (fastify) => {
                 // Twilio playback so the caller is not talked over.
                 liveState.outputAudioActive = false;
                 if (session.streamSid && connection.readyState === WebSocket.OPEN) {
+                    invalidatePlaybackMarks('live_barge_in');
                     connection.send(JSON.stringify({
                         event: 'clear',
                         streamSid: session.streamSid
@@ -1197,6 +1485,7 @@ fastify.register(async (fastify) => {
             pendingResponseAfterCurrent = false;
 
             if (session.streamSid && connection.readyState === WebSocket.OPEN) {
+                invalidatePlaybackMarks('speech_started');
                 connection.send(JSON.stringify({
                     event: 'clear',
                     streamSid: session.streamSid
@@ -1364,15 +1653,21 @@ fastify.register(async (fastify) => {
                 console.log(`User (${sessionId}): ${gateResult.normalized}`);
             }
 
+            // The caller kept talking — a pending end-of-call request no
+            // longer reflects the conversation.
+            revokeCallEnd('live_user_turn');
+
             const classification = classifyRealtimeConversation(session.turns);
-            jevShadow?.observe(session.turns, session.turns.length, classification);
+            jevShadow?.observe(session.turns, session.turns.length, classification, session.callSid || sessionId);
 
             if (
                 classification.tier === 'complex_complaint'
                 && !liveState.complexMode
+                && !liveState.complexModeEventId
                 && openAiWs.readyState === WebSocket.OPEN
             ) {
-                liveState.complexMode = true;
+                const eventId = `upd_complex_${Date.now()}`;
+                liveState.complexModeEventId = eventId;
                 auditLog('live.backend_escalation.started', {
                     actor: 'system',
                     target: session.callSid || sessionId,
@@ -1380,7 +1675,7 @@ fastify.register(async (fastify) => {
                 });
                 openAiWs.send(JSON.stringify({
                     type: 'session.update',
-                    event_id: `upd_complex_${Date.now()}`,
+                    event_id: eventId,
                     session: {
                         delegation: {
                             type: 'responses',
@@ -1469,7 +1764,19 @@ fastify.register(async (fastify) => {
         };
 
         const handleLiveStartFailure = (reason) => {
-            if (providerMode !== 'live' || liveState.started) return;
+            // Provider (re)start is only allowed while the call is still
+            // starting or active — never after handoff, caller disconnect,
+            // or normal close. This is the lifecycle guard the audit requires.
+            if (
+                providerMode !== 'live'
+                || liveState.started
+                || callLifecycle.phase === 'handoff'
+                || callLifecycle.phase === 'closing'
+                || callLifecycle.phase === 'closed'
+                || session.callEnd?.completed
+            ) {
+                return;
+            }
             auditLog('live.session.start_failed', {
                 actor: 'openai',
                 target: session.callSid || sessionId,
@@ -1500,12 +1807,21 @@ fastify.register(async (fastify) => {
         };
 
         const attachLiveSocket = (socket) => {
+            // The start deadline covers the WebSocket handshake too — a hung
+            // TCP/TLS negotiation must not leave the caller in silence.
+            if (liveState.startTimer) clearTimeout(liveState.startTimer);
+            liveState.startTimer = setTimeout(() => {
+                liveState.startTimer = null;
+                handleLiveStartFailure('session_started_timeout');
+            }, Number(LIVE_START_TIMEOUT_MS));
+
             socket.on('open', () => {
                 if (socket !== openAiWs) return;
                 console.log(`Connected to the GPT-Live API (${LIVE_MODEL})`);
 
                 const liveTools = [
                     VALIDATE_CALLBACK_PHONE_TOOL,
+                    ...(KNOWLEDGE_TOOL_DEF ? [KNOWLEDGE_TOOL_DEF] : []),
                     ...(session.handoffFallback ? [] : [TRANSFER_TO_HUMAN_TOOL].filter(Boolean)),
                     ...(FINISH_RECEPTION_TOOL ? [FINISH_RECEPTION_TOOL] : [])
                 ].filter(Boolean);
@@ -1523,11 +1839,6 @@ fastify.register(async (fastify) => {
                         tool_choice: 'auto'
                     }
                 })));
-
-                liveState.startTimer = setTimeout(() => {
-                    liveState.startTimer = null;
-                    handleLiveStartFailure('session_started_timeout');
-                }, Number(LIVE_START_TIMEOUT_MS));
             });
 
             socket.on('message', (data) => {
@@ -1543,6 +1854,7 @@ fastify.register(async (fastify) => {
                     switch (classified.kind) {
                         case 'started':
                             liveState.started = true;
+                            liveState.everStarted = true;
                             if (liveState.startTimer) {
                                 clearTimeout(liveState.startTimer);
                                 liveState.startTimer = null;
@@ -1584,6 +1896,24 @@ fastify.register(async (fastify) => {
                             scheduleLiveAgentTurnFinalize();
                             break;
 
+                        case 'updated':
+                            // complexMode activates only when the acked
+                            // session.update matches the event we sent — an
+                            // unrelated update must not widen transfer policy.
+                            if (
+                                liveState.complexModeEventId
+                                && (event.client_event_id === liveState.complexModeEventId
+                                    || event.event_id === liveState.complexModeEventId)
+                            ) {
+                                liveState.complexMode = true;
+                                liveState.complexModeEventId = '';
+                                auditLog('live.backend_escalation.activated', {
+                                    actor: 'openai',
+                                    target: session.callSid || sessionId
+                                });
+                            }
+                            break;
+
                         case 'delegation_created':
                             finalizeLiveUserTurn('delegation');
                             auditLog('live.delegation.created', {
@@ -1601,8 +1931,18 @@ fastify.register(async (fastify) => {
                                 classified.delegationId,
                                 classified.nested
                             );
-                            if (completed?.calls?.length) {
-                                handleToolCalls(toRealtimeDoneEvent(completed.calls));
+                            // Side-effecting tool calls execute only for a
+                            // completed response — failed/incomplete snapshots
+                            // can carry truncated calls.
+                            if (completed?.status === 'response.completed' && completed.calls?.length) {
+                                void (async () => {
+                                    const doneEvent = toRealtimeDoneEvent(completed.calls, completed.status);
+                                    const knowledgeHandled = await handleKnowledgeToolCalls(doneEvent);
+                                    const flowHandled = handleToolCalls(doneEvent);
+                                    if (knowledgeHandled && !flowHandled) {
+                                        sendRealtimeResponseCreate('knowledge_tool_output');
+                                    }
+                                })();
                             }
                             break;
                         }
@@ -1613,6 +1953,17 @@ fastify.register(async (fastify) => {
                                 target: session.callSid || sessionId,
                                 metadata: { usage: classified.usage || null }
                             });
+                            session.liveUsage = classified.usage || null;
+                            liveState.started = false;
+                            if (liveState.drainTimer) {
+                                clearTimeout(liveState.drainTimer);
+                                liveState.drainTimer = null;
+                            }
+                            if (liveState.closedResolver) {
+                                const resolve = liveState.closedResolver;
+                                liveState.closedResolver = null;
+                                resolve('closed');
+                            }
                             break;
 
                         case 'error':
@@ -1632,10 +1983,36 @@ fastify.register(async (fastify) => {
 
             socket.on('close', (code) => {
                 if (socket === openAiWs) {
+                    const wasStarted = liveState.everStarted;
                     liveState.started = false;
                     session.openAiCloseCode = code;
+                    if (liveState.closedResolver) {
+                        const resolve = liveState.closedResolver;
+                        liveState.closedResolver = null;
+                        if (liveState.drainTimer) {
+                            clearTimeout(liveState.drainTimer);
+                            liveState.drainTimer = null;
+                        }
+                        resolve('socket_closed');
+                    }
                     if (providerMode === 'live' && !session.callEnd?.completed) {
-                        handleLiveStartFailure(`socket_closed_${code}`);
+                        if (!wasStarted) {
+                            // Never started: retry through the Realtime fallback.
+                            handleLiveStartFailure(`socket_closed_${code}`);
+                        } else if (callLifecycle.phase === 'active' && !session.handoff?.started) {
+                            // Mid-call provider drop. A silent reconnect would
+                            // replay the opening greeting, so the call leg is
+                            // ended cleanly instead of leaking a new session.
+                            auditLog('live.session.mid_call_drop', {
+                                actor: 'openai',
+                                target: session.callSid || sessionId,
+                                result: 'failure',
+                                metadata: { code }
+                            });
+                            if (connection.readyState === WebSocket.OPEN) {
+                                connection.close(1011, 'provider_dropped');
+                            }
+                        }
                     }
                 }
                 console.log(`Disconnected from the GPT-Live API (${code})`);
@@ -1743,8 +2120,12 @@ fastify.register(async (fastify) => {
                             console.log(`User (${sessionId}): ${gateResult.normalized}`);
                         }
 
+                        // Caller correction/interruption revokes a pending
+                        // end-of-call request and all its timers.
+                        revokeCallEnd('realtime_user_turn');
+
                         const classification = classifyRealtimeConversation(session.turns);
-                        jevShadow?.observe(session.turns, session.turns.length, classification);
+                        jevShadow?.observe(session.turns, session.turns.length, classification, session.callSid || sessionId);
                         if (
                             classification.tier === 'complex_complaint'
                             && activeRealtimeModel !== COMPLEX_REALTIME_MODEL
@@ -1819,15 +2200,24 @@ fastify.register(async (fastify) => {
                     if (response.type === 'response.done') {
                         responseInProgress = false;
                         responseCreatePending = false;
-                        if (handleToolCalls(response)) {
-                            return;
-                        }
-                        if (pendingResponseAfterCurrent) {
-                            pendingResponseAfterCurrent = false;
-                            sendRealtimeResponseCreate('queued_after_response_done');
-                            return;
-                        }
-                        sendEndCallMark('response_done');
+                        // Knowledge lookups are async — run them first so every
+                        // tool output lands before the shared response.create.
+                        void (async () => {
+                            const knowledgeHandled = await handleKnowledgeToolCalls(response);
+                            if (handleToolCalls(response)) {
+                                return;
+                            }
+                            if (knowledgeHandled) {
+                                sendRealtimeResponseCreate('knowledge_tool_output');
+                                return;
+                            }
+                            if (pendingResponseAfterCurrent) {
+                                pendingResponseAfterCurrent = false;
+                                sendRealtimeResponseCreate('queued_after_response_done');
+                                return;
+                            }
+                            sendEndCallMark('response_done');
+                        })();
                     }
 
                     if (response.type === 'error') {
@@ -1888,10 +2278,24 @@ fastify.register(async (fastify) => {
                             console.warn('Twilio stream start message did not include streamSid');
                             break;
                         }
+                        // The start frame must agree with the verified token —
+                        // a stream authenticated for call A cannot carry call B.
+                        if (boundCallSid && data.start.callSid && data.start.callSid !== boundCallSid) {
+                            auditLog('twilio.media_stream.call_sid_mismatch', {
+                                actor: 'twilio',
+                                target: boundCallSid,
+                                result: 'failure',
+                                metadata: { streamSid: data.start.streamSid }
+                            });
+                            connection.close(4403, 'call_sid_mismatch');
+                            break;
+                        }
                         const customParameters = data.start.customParameters || {};
                         session.streamSid = data.start.streamSid;
                         session.callSid = data.start.callSid || session.callSid;
                         session.accountSid = data.start.accountSid || '';
+                        callLifecycle.phase = 'active';
+                        session.lifecycle = callLifecycle.phase;
                         session.from = customParameters.from || '';
                         session.to = customParameters.to || '';
                         const handoffFallback = String(
@@ -1928,7 +2332,13 @@ fastify.register(async (fastify) => {
                         flushPendingOutboundAudio();
                         break;
                     case 'mark':
-                        if (data.mark?.name && data.mark.name === session.callEnd?.markName) {
+                        // Only a mark from the current playback epoch counts —
+                        // Twilio echoes cleared marks too.
+                        if (
+                            data.mark?.name
+                            && data.mark.name === session.callEnd?.markName
+                            && session.callEnd?.markEpoch === session.playback?.epoch
+                        ) {
                             scheduleCallCompletion('twilio_mark');
                         }
                         break;
@@ -1948,17 +2358,55 @@ fastify.register(async (fastify) => {
 
         // 接続が閉じられたときの処理
         const handleTwilioClose = async (code, reason) => {
+            // Disposal is idempotent — a second close event must not re-run
+            // persistence, notifications, or provider shutdown.
+            if (callLifecycle.phase === 'closing' || callLifecycle.phase === 'closed') return;
+            callLifecycle.phase = 'closing';
+            session.lifecycle = callLifecycle.phase;
+
             if (callEndTimer) clearTimeout(callEndTimer);
             if (callEndMarkTimeout) clearTimeout(callEndMarkTimeout);
             if (liveState.userFragTimer) clearTimeout(liveState.userFragTimer);
             if (liveState.agentFragTimer) clearTimeout(liveState.agentFragTimer);
             if (liveState.startTimer) clearTimeout(liveState.startTimer);
+
+            // Flush in-flight transcript fragments as provisional turns so a
+            // mid-utterance disconnect does not silently lose caller speech.
+            if (liveState.userFrag.trim()) {
+                appendTurn(session, 'user', liveState.userFrag, { provisional: true });
+                liveState.userFrag = '';
+            }
+            if (liveState.agentFrag.trim()) {
+                appendTurn(session, 'agent', liveState.agentFrag, { provisional: true });
+                liveState.agentFrag = '';
+            }
+
+            // Bounded graceful close: send session.close, wait for
+            // session.closed with a deadline, and record an incomplete
+            // finalization when confirmation never arrives.
             if (openAiWs.readyState === WebSocket.OPEN) {
-                if (providerMode === 'live' && liveState.started) {
+                if (providerMode === 'live' && liveState.started && !liveState.closeSent) {
+                    liveState.closeSent = true;
                     try {
                         openAiWs.send(JSON.stringify(liveSessionClose(`close_${sessionId}`)));
+                        const drainResult = await new Promise((resolve) => {
+                            liveState.closedResolver = resolve;
+                            liveState.drainTimer = setTimeout(
+                                () => resolve('drain_timeout'),
+                                Number(LIVE_CLOSE_DRAIN_MS)
+                            );
+                        });
+                        if (drainResult !== 'closed') {
+                            session.liveCloseIncomplete = true;
+                            auditLog('live.session.close_incomplete', {
+                                actor: 'openai',
+                                target: session.callSid || sessionId,
+                                result: 'failure',
+                                metadata: { drainResult }
+                            });
+                        }
                     } catch {
-                        // best effort: usage finalization only
+                        session.liveCloseIncomplete = true;
                     }
                 }
                 openAiWs.close();
@@ -1994,6 +2442,8 @@ fastify.register(async (fastify) => {
             });
 
             // セッションのクリーンアップ
+            callLifecycle.phase = 'closed';
+            session.lifecycle = callLifecycle.phase;
             sessions.delete(sessionId);
         };
 
