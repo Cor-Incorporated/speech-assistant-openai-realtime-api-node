@@ -80,6 +80,12 @@ let inputTranscript = '';
 let outputTranscript = '';
 let started = false;
 let finished = false;
+// Set once tool outputs have been submitted; any provider activity after that
+// point proves the tool round-trip actually completed — the old PASS criteria
+// (any audio delta) masked a production bug where the output never reached the
+// provider and the call sat in silence.
+let toolOutputsSent = false;
+let postToolActivity = false;
 
 const ws = new WebSocket('wss://api.openai.com/v1/live/sessions', {
     headers: { Authorization: `Bearer ${apiKey}` }
@@ -102,7 +108,7 @@ function report(code) {
     console.log(`counts=${JSON.stringify({ ...counts, functionCalls: counts.functionCalls.map((c) => c.name) })}`);
     const pass = started && inputTranscript.length > 0
         && (counts.audioDeltas > 0 || outputTranscript.length > 0)
-        && (!FORCE_TOOL || counts.functionCalls.length > 0);
+        && (!FORCE_TOOL || (counts.functionCalls.length > 0 && postToolActivity && counts.errors.length === 0));
     console.log(pass ? '== PASS ==' : '== FAIL ==');
     try { ws.close(); } catch { /* ignore */ }
     process.exit(code ?? (pass ? 0 : 1));
@@ -204,6 +210,7 @@ ws.on('message', (data) => {
             break;
         case 'audio_delta': {
             counts.audioDeltas += 1;
+            if (toolOutputsSent) postToolActivity = true;
             const out = Buffer.from(c.delta, 'base64');
             counts.audioBytes += out.length;
             break;
@@ -222,6 +229,9 @@ ws.on('message', (data) => {
             console.log(`\n[delegation] id=${c.delegationId} target=${c.target}`);
             break;
         case 'response_event': {
+            if (toolOutputsSent && ['response.in_progress', 'response.created', 'response.completed'].includes(c.nested?.type)) {
+                postToolActivity = true;
+            }
             const done = tracker.observeResponseEvent(c.delegationId, c.nested);
             if (done?.calls?.length) {
                 for (const call of done.calls) {
@@ -233,6 +243,7 @@ ws.on('message', (data) => {
                         output: JSON.stringify({ status: 'ok' })
                     }, `tr_${call.call_id}`)));
                     ws.send(JSON.stringify(liveResponseCreate(`rc_${Date.now()}`)));
+                    toolOutputsSent = true;
                 }
             }
             break;
