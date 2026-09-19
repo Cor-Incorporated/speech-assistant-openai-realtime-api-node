@@ -211,6 +211,15 @@ describe('live-session helpers', () => {
             assert.deepEqual(toLiveToolResultItem({ type: 'conversation.item.create', item }), item);
             assert.equal(toLiveToolResultItem({ type: 'other' }), null);
         });
+
+        it('passes through bare function_call_output items unchanged', () => {
+            // Regression: the knowledge runtime returns bare output items.
+            // Dropping them here leaves the provider call pending and every
+            // response.create rejected — 86s of dead air on a real call.
+            const item = { type: 'function_call_output', call_id: 'call_1', output: '{"status":"found"}' };
+            assert.deepEqual(toLiveToolResultItem(item), item);
+            assert.equal(toLiveToolResultItem({ type: 'function_call_output' }), null);
+        });
     });
 
     describe('outbound commands', () => {

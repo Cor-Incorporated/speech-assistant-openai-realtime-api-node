@@ -71,6 +71,7 @@ import {
     createLiveAudioCodec,
     createLiveDelegationTracker,
     liveAudioAppend,
+    liveInstructionsAppend,
     liveItemCreate,
     liveResponseCreate,
     liveSessionClose,
@@ -155,6 +156,7 @@ const {
     LIVE_USER_TURN_GAP_MS = '900',
     LIVE_AGENT_TURN_GAP_MS = '1100',
     LIVE_START_TIMEOUT_MS = '8000',
+    LIVE_TOOL_WATCHDOG_MS = '10000',
     LIVE_FALLBACK_TO_REALTIME = 'true',
     LIVE_END_MARK_DELAY_MS = '1500',
     LIVE_CLOSE_DRAIN_MS = '3000',
@@ -1454,6 +1456,58 @@ fastify.register(async (fastify) => {
             return true;
         };
 
+        // Tool-response watchdog (live only): once a response.create is sent
+        // after tool outputs, the provider must show continuation activity —
+        // a rejected create or a stalled model otherwise leaves the caller in
+        // unbounded silence (observed: 86s dead air on a real call when the
+        // tool output never reached the provider). Stage 1 nudges the model
+        // toward the graceful callback fallback; stage 2 ends the call through
+        // the normal end-of-call workflow instead of leaving dead air.
+        let toolWatchdogTimer = null;
+        const toolWatchdogMs = Math.min(Math.max(Number(LIVE_TOOL_WATCHDOG_MS) || 0, 0), 60000);
+        const clearToolWatchdog = () => {
+            if (toolWatchdogTimer) {
+                clearTimeout(toolWatchdogTimer);
+                toolWatchdogTimer = null;
+            }
+        };
+        const armToolWatchdog = (stage = 1) => {
+            if (providerMode !== 'live' || toolWatchdogMs < 2000) return;
+            clearToolWatchdog();
+            toolWatchdogTimer = setTimeout(() => {
+                toolWatchdogTimer = null;
+                if (openAiWs.readyState !== WebSocket.OPEN || providerMode !== 'live') return;
+                if (stage === 1) {
+                    auditLog('live.tool_response.stalled', {
+                        actor: 'system',
+                        target: session.callSid || sessionId,
+                        result: 'failure',
+                        metadata: { watchdogMs: toolWatchdogMs }
+                    });
+                    try {
+                        openAiWs.send(JSON.stringify(liveInstructionsAppend(
+                            'ツール実行結果への応答が遅延しています。追加の確認や推測での回答はせず、「確認して担当者より折り返します」とだけ丁寧に伝えてください。',
+                            `wd_${Date.now()}`,
+                            liveState.toolWatchdogDelegationId ?? null
+                        )));
+                        openAiWs.send(JSON.stringify(liveResponseCreate(`rc_wd_${Date.now()}`)));
+                    } catch {
+                        // socket raced closed — stage 2 will not run on a dead provider
+                        return;
+                    }
+                    armToolWatchdog(2);
+                    return;
+                }
+                auditLog('live.tool_response.failed', {
+                    actor: 'system',
+                    target: session.callSid || sessionId,
+                    result: 'failure',
+                    metadata: { watchdogMs: toolWatchdogMs }
+                });
+                requestCallEnd({ source: 'live_tool_watchdog', reason: 'tool_response_stalled' });
+            }, toolWatchdogMs);
+        };
+
         const sendRealtimeResponseCreate = (reason) => {
             if (openAiWs.readyState !== WebSocket.OPEN) return;
 
@@ -1463,6 +1517,7 @@ fastify.register(async (fastify) => {
                 // accepted user turn.
                 if (!liveState.started || String(reason).startsWith('accepted_transcript')) return;
                 openAiWs.send(JSON.stringify(liveResponseCreate(`rc_${Date.now()}`)));
+                armToolWatchdog();
                 return;
             }
 
@@ -1628,6 +1683,7 @@ fastify.register(async (fastify) => {
                 'あなたはCor.株式会社の電話受付を行う日本語の音声AIです。簡潔で丁寧な自然な日本語で話してください。',
                 `通話開始の最初の発話として、必ず一字一句そのまま「${firstMessage}」とだけ発話し、その後は発信者の返答を待ってください。`,
                 '業務上の判断・電話番号の検証・受付終了・担当者への転送可否は、すべてバックエンドに委譲してください。自分だけで判断せず、バックエンドの結果を自然な言葉で伝えてください。',
+                'バックエンドへの委譲中は発信者を無音で待たせないでください。「少々お待ちください」など短い相づちを先に伝え、結果が返ったら要点だけを簡潔に案内してください。',
                 '「営業時間」「営業日」「定休日」「何時まで」は営業勧誘（セールス）ではなく、会社の営業時間への一般質問です。営業の受付や担当者への引き継ぎと混同しないでください。',
                 '内部の分類名・ツール名・判定理由は絶対に発話しないでください。',
                 session.handoffFallback
@@ -1945,6 +2001,11 @@ fastify.register(async (fastify) => {
                             break;
 
                         case 'response_event': {
+                            const nestedLifecycle = classified.nested?.type || '';
+                            if (['response.in_progress', 'response.created', 'response.completed',
+                                'response.failed', 'response.incomplete'].includes(nestedLifecycle)) {
+                                clearToolWatchdog();
+                            }
                             const completed = liveState.delegation.observeResponseEvent(
                                 classified.delegationId,
                                 classified.nested
@@ -1953,6 +2014,7 @@ fastify.register(async (fastify) => {
                             // completed response — failed/incomplete snapshots
                             // can carry truncated calls.
                             if (completed?.status === 'response.completed' && completed.calls?.length) {
+                                liveState.toolWatchdogDelegationId = completed.delegationId;
                                 void (async () => {
                                     const doneEvent = toRealtimeDoneEvent(completed.calls, completed.status);
                                     const knowledgeHandled = await handleKnowledgeToolCalls(doneEvent);
@@ -1966,6 +2028,7 @@ fastify.register(async (fastify) => {
                         }
 
                         case 'closed':
+                            clearToolWatchdog();
                             auditLog('live.session.closed', {
                                 actor: 'openai',
                                 target: session.callSid || sessionId,
@@ -2429,6 +2492,8 @@ fastify.register(async (fastify) => {
                 appendTurn(session, 'agent', liveState.agentFrag, { provisional: true });
                 liveState.agentFrag = '';
             }
+
+            clearToolWatchdog();
 
             // Bounded graceful close: send session.close, wait for
             // session.closed with a deadline, and record an incomplete

@@ -52,7 +52,7 @@ class ProviderStub {
         await once(this.wss, 'listening');
         this.port = this.wss.address().port;
         this.wss.on('connection', (socket) => {
-            const conn = { socket, messages: [], closed: false };
+            const conn = { socket, messages: [], closed: false, pendingCalls: [], toolOutputs: [], activeDelegation: '' };
             this.connections.push(conn);
             socket.on('message', (data) => {
                 let event = null;
@@ -69,6 +69,35 @@ class ProviderStub {
                         session: { id: 'live_stub_session' }
                     }));
                 }
+                if (event.type === 'response.item.create' && event.item?.type === 'function_call_output') {
+                    conn.toolOutputs.push(event.item.call_id);
+                }
+                if (event.type === 'response.create') {
+                    // Emulate the real provider contract: a create arriving
+                    // while function calls have no submitted output is an
+                    // error, and the call stays pending — this is the exact
+                    // failure that produced 86s of dead air in production.
+                    const pending = conn.pendingCalls.filter((id) => !conn.toolOutputs.includes(id));
+                    if (pending.length) {
+                        socket.send(JSON.stringify({
+                            type: 'error',
+                            error: { message: 'Submit the pending function call outputs before response.create.' }
+                        }));
+                    } else if (conn.activeDelegation) {
+                        // Continuation response under the same delegation —
+                        // what the real provider emits after valid outputs.
+                        socket.send(JSON.stringify({
+                            type: 'response.event',
+                            delegation_id: conn.activeDelegation,
+                            event: { type: 'response.in_progress', response: { id: 'resp_cont', status: 'in_progress' } }
+                        }));
+                        socket.send(JSON.stringify({
+                            type: 'response.event',
+                            delegation_id: conn.activeDelegation,
+                            event: { type: 'response.completed', response: { id: 'resp_cont', status: 'completed' } }
+                        }));
+                    }
+                }
                 if (event.type === 'session.close') {
                     socket.send(JSON.stringify({ type: 'session.closed', usage: { total_tokens: 1 } }));
                 }
@@ -77,6 +106,35 @@ class ProviderStub {
                 conn.closed = true;
             });
         });
+    }
+
+    // Drive a delegated function_call the way the real provider does:
+    // delegation.created, the call's output_item.done, then response.completed.
+    injectDelegation(conn, callName, args = '{}') {
+        const suffix = String(Date.now()) + String(conn.pendingCalls.length);
+        const delegationId = `item_inj_${suffix}`;
+        const callId = `call_inj_${suffix}`;
+        conn.activeDelegation = delegationId;
+        conn.pendingCalls.push(callId);
+        conn.socket.send(JSON.stringify({
+            type: 'session.delegation.created',
+            delegation: { id: delegationId, type: 'delegation', response_id: `resp_inj_${suffix}`, target: 'responses' }
+        }));
+        conn.socket.send(JSON.stringify({
+            type: 'response.event',
+            delegation_id: delegationId,
+            event: {
+                type: 'response.output_item.done',
+                item: { id: `fc_inj_${suffix}`, type: 'function_call', status: 'completed', arguments: args, call_id: callId, name: callName },
+                output_index: 0
+            }
+        }));
+        conn.socket.send(JSON.stringify({
+            type: 'response.event',
+            delegation_id: delegationId,
+            event: { type: 'response.completed', response: { id: `resp_inj_${suffix}`, status: 'completed' } }
+        }));
+        return { delegationId, callId };
     }
 
     async stop() {
@@ -249,6 +307,46 @@ describe('media-stream integration (real handler, mocked provider)', () => {
             `provider reconnect after caller disconnect: ${JSON.stringify(provider.connections.map((c) => c.messages.map((m) => m.type)))}`);
         const closeEvent = liveConn.messages.find((m) => m.type === 'session.close');
         assert.ok(closeEvent, 'session.close was never sent to the provider on disconnect');
+    });
+
+    it('submits function_call_output before response.create — the provider contract', async () => {
+        // Regression for the production incident: the knowledge tool output
+        // never reached the provider, so response.create was rejected with
+        // "Submit the pending function call outputs" and the caller heard
+        // 86 seconds of silence. The stub enforces the same contract — a
+        // create arriving while a call is pending produces an error event.
+        const token = createStreamToken({ callSid: CALL_SID, secret: AUTH_TOKEN });
+        const connIndex = provider.connections.length;
+        const socket = await connectClient(`/${encodeURIComponent(token)}`);
+        sendStartFrame(socket);
+        const liveConn = await waitFor(() => provider.connections[connIndex], 5000);
+        assert.ok(liveConn, 'provider never received a connection for this stream');
+        assert.ok(
+            await waitFor(() => liveConn.messages.some((m) => m.type === 'session.start'), 5000),
+            'provider never received session.start'
+        );
+
+        const { callId } = provider.injectDelegation(
+            liveConn, 'lookup_company_knowledge', '{"query":"営業時間"}'
+        );
+
+        const ordered = await waitFor(() => {
+            const itemIdx = liveConn.messages.findIndex(
+                (m) => m.type === 'response.item.create' && m.item?.call_id === callId
+            );
+            const createIdx = liveConn.messages.findIndex((m) => m.type === 'response.create');
+            if (itemIdx >= 0 && createIdx > itemIdx) return true;
+            return null;
+        }, 8000);
+        assert.ok(
+            ordered,
+            `function_call_output did not precede response.create: ${JSON.stringify(liveConn.messages.map((m) => m.type))}`
+        );
+        assert.ok(
+            !liveConn.messages.some((m) => m.type === 'error'),
+            'provider rejected a premature response.create'
+        );
+        socket.close();
     });
 
     it('rejects a start frame whose callSid does not match the token', async () => {
