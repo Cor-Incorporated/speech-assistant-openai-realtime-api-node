@@ -59,7 +59,7 @@ export function isNonHandoffBusinessCall(turns?: HandoffTurn[]): boolean;
 export function isSalesBusinessCall(turns?: HandoffTurn[]): boolean;
 export function shouldAllowHumanHandoff(turns?: HandoffTurn[], destination?: string): boolean;
 export function resolveHandoffDestination(turns?: HandoffTurn[], destination?: string): 'contract' | 'general';
-export function isHandoffCallConnected(dialCallStatus: unknown, context?: { status?: string }): boolean;
+export function isHandoffCallConnected(dialCallStatus: unknown, context?: { status?: string; whisperAccepted?: boolean }): boolean;
 export function findTransferToHumanToolCalls(event: unknown): Array<{ callId: string; reason: string; destination: 'contract' | 'general' }>;
 export function summarizeHandoffTurns(turns?: HandoffTurn[], options?: { maxTurns?: number; maxChars?: number }): string;
 export function summarizeHandoffWhisper(turns?: HandoffTurn[], options?: { maxTurns?: number; maxChars?: number }): string;

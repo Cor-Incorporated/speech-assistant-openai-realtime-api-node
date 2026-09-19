@@ -53,12 +53,20 @@ export type RoutingDecision =
           signals: RoutingSignals;
           source: ClassifierSource;
           contextRevision: number;
+          /** Raw choice probabilities — calibration data, never policy gates. */
+          intentProbabilities?: Record<string, number>;
+          /** Raw per-risk scores — kept separate from choice confidence. */
+          riskScores?: Record<string, number>;
       }
     | {
           kind: 'uncertain';
           reason: 'ambiguous' | 'insufficient_context' | 'timeout' | 'unavailable';
           signals: RoutingSignals;
           contextRevision: number;
+          /** Independent risk data survives an unknown/ambiguous intent. */
+          risks?: RiskFlag[];
+          riskScores?: Record<string, number>;
+          intentProbabilities?: Record<string, number>;
       };
 
 export const isIntent = (value: unknown): value is Intent =>

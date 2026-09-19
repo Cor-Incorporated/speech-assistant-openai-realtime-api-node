@@ -1,11 +1,28 @@
+import dotenv from 'dotenv';
 import WebSocket from 'ws';
+import { createStreamToken } from '../lib/stream-auth.js';
+
+dotenv.config();
 
 const baseUrl = process.env.SMOKE_WS_URL || 'ws://127.0.0.1:5050/media-stream';
 const timeoutMs = Number(process.env.MEDIA_STREAM_SMOKE_TIMEOUT_MS || '15000');
 const callSid = `CA_SMOKE_${Date.now()}`;
 const streamSid = `MZ_SMOKE_${Date.now()}`;
 
-const ws = new WebSocket(baseUrl, {
+// When the server enforces stream authentication, the smoke client must mint
+// the same signed token Twilio would receive in the TwiML. Auth-disabled
+// local servers accept the bare URL unchanged.
+const streamAuthEnabled = String(process.env.TWILIO_STREAM_AUTH_ENABLED || '').toLowerCase() === 'true';
+const streamSecret = process.env.TWILIO_AUTH_TOKEN || '';
+if (streamAuthEnabled && !streamSecret) {
+    console.error('not ok - TWILIO_STREAM_AUTH_ENABLED=true but TWILIO_AUTH_TOKEN is not set');
+    process.exit(1);
+}
+const url = streamAuthEnabled
+    ? `${baseUrl}?token=${encodeURIComponent(createStreamToken({ callSid, secret: streamSecret }))}`
+    : baseUrl;
+
+const ws = new WebSocket(url, {
     headers: {
         'x-twilio-call-sid': callSid
     }
