@@ -170,20 +170,18 @@ export class JevClassifier {
             signals.humanRequested = raw.humanRequested >= riskThreshold;
         }
 
-        const intents: Intent[] = [];
-        if (raw.intent !== undefined) {
-            if (!isIntent(raw.intent) || raw.intent === 'unknown') {
-                return { kind: 'uncertain', reason: 'ambiguous', signals, contextRevision };
-            }
-            intents.push(raw.intent);
-        }
-
+        // Risks are evaluated BEFORE the intent early-return: an ambiguous or
+        // unknown intent must not discard independent risk evidence (a caller
+        // can be hard to classify and still be reporting an emergency). Raw
+        // scores are preserved alongside the flags for calibration.
         const risks: RiskFlag[] = [];
-        const riskScores = raw.risks ?? {};
-        for (const [flag, score] of Object.entries(riskScores)) {
+        const riskScores: Record<string, number> = {};
+        const rawRiskScores = raw.risks ?? {};
+        for (const [flag, score] of Object.entries(rawRiskScores)) {
             if (!isValidProbability(score)) {
                 return { kind: 'uncertain', reason: 'unavailable', signals, contextRevision };
             }
+            riskScores[flag] = score;
             if (score >= riskThreshold) {
                 if (flag === 'life_safety_emergency') risks.push('life_safety_emergency');
                 else if (flag === 'caller_aggression') risks.push('caller_aggression');
@@ -192,8 +190,41 @@ export class JevClassifier {
             }
         }
 
+        // Choice probabilities are calibration metadata — kept separate from
+        // Noul risk scores and never used as a production gate on their own.
+        const intentProbabilities: Record<string, number> = {};
+        if (raw.intentProbabilities) {
+            for (const [label, probability] of Object.entries(raw.intentProbabilities)) {
+                if (isValidProbability(probability)) intentProbabilities[label] = probability;
+            }
+        }
+
+        const intents: Intent[] = [];
+        if (raw.intent !== undefined) {
+            if (!isIntent(raw.intent) || raw.intent === 'unknown') {
+                return {
+                    kind: 'uncertain',
+                    reason: 'ambiguous',
+                    signals,
+                    contextRevision,
+                    risks,
+                    riskScores,
+                    intentProbabilities
+                };
+            }
+            intents.push(raw.intent);
+        }
+
         if (intents.length === 0) {
-            return { kind: 'uncertain', reason: 'insufficient_context', signals, contextRevision };
+            return {
+                kind: 'uncertain',
+                reason: 'insufficient_context',
+                signals,
+                contextRevision,
+                risks,
+                riskScores,
+                intentProbabilities
+            };
         }
 
         return {
@@ -202,7 +233,9 @@ export class JevClassifier {
             risks,
             signals,
             source: 'jev',
-            contextRevision
+            contextRevision,
+            intentProbabilities,
+            riskScores
         };
     }
 }

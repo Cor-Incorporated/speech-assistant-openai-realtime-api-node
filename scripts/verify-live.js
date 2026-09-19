@@ -1,8 +1,15 @@
 #!/usr/bin/env node
-// Real GPT-Live API verification: connects a session, sends generated Japanese
-// speech as caller audio, and reports transcripts, audio deltas, and any
-// delegated tool calls. Never sends real customer data; the utterance is a
-// fixed synthetic phrase generated locally with `say`/`afconvert`.
+// Real GPT-Live API PROTOCOL SMOKE TEST — connects a session, sends generated
+// Japanese speech as caller audio, and reports transcripts, audio deltas, and
+// any delegated tool calls.
+//
+// SCOPE: this is a protocol-level smoke check (session start, audio in/out,
+// delegation wiring, tool round-trip). It is NOT a reception acceptance test —
+// a PASS here does not prove the production call flow is correct, only that
+// the wire protocol works. Reception-level behavior is covered by
+// test/media-stream.integration.test.js (mocked provider + real handler).
+// Never sends real customer data; the utterance is a fixed synthetic phrase
+// generated locally with `say`/`afconvert`.
 //
 // Usage:
 //   OPENAI_API_KEY=... node scripts/verify-live.js

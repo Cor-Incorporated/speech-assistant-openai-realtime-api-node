@@ -464,6 +464,12 @@ function App() {
                         <h1 className="text-balance text-2xl font-semibold text-slate-950">通話ログ管理</h1>
                     </div>
                     <div className="flex flex-wrap gap-2">
+                        <a
+                            href="#v2"
+                            className="w-fit rounded border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-medium text-sky-800 hover:bg-sky-100 focus:outline-none focus:ring-2 focus:ring-sky-300"
+                        >
+                            管理コンソール v2
+                        </a>
                         <button
                             type="button"
                             onClick={cleanupTestLogs}

@@ -132,3 +132,7 @@ dist
 
 # Backend TypeScript build output
 dist-backend/
+
+# Playwright artifacts
+test-results/
+playwright-report/
