@@ -44,13 +44,31 @@ describe('stream-auth token', () => {
 describe('verifyMediaStreamRequest', () => {
     const req = (url) => ({ url });
 
-    it('accepts a request carrying a valid token', () => {
+    it('accepts a request carrying a valid token in the URL path (Twilio channel)', () => {
+        // Twilio drops the <Stream url> query on connect — production TwiML
+        // carries the token as /media-stream/<token>.
+        const token = createStreamToken({ callSid: CALL_SID, secret: SECRET });
+        const result = verifyMediaStreamRequest(req(`/media-stream/${encodeURIComponent(token)}`), {
+            secret: SECRET,
+            enabled: 'true'
+        });
+        assert.deepEqual(result, { ok: true, callSid: CALL_SID });
+    });
+
+    it('accepts a request carrying a valid token in the query (local/test channel)', () => {
         const token = createStreamToken({ callSid: CALL_SID, secret: SECRET });
         const result = verifyMediaStreamRequest(req(`/media-stream?token=${encodeURIComponent(token)}`), {
             secret: SECRET,
             enabled: 'true'
         });
         assert.deepEqual(result, { ok: true, callSid: CALL_SID });
+    });
+
+    it('rejects an invalid token in the path', () => {
+        assert.equal(
+            verifyMediaStreamRequest(req('/media-stream/v1.bad.bad'), { secret: SECRET, enabled: 'true' }).reason,
+            'invalid_stream_token'
+        );
     });
 
     it('rejects missing and invalid tokens', () => {

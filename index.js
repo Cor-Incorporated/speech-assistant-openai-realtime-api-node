@@ -84,7 +84,7 @@ import {
     shouldValidateTwilioSignature,
     validateTwilioSignature
 } from './lib/security.js';
-import { createStreamToken, verifyMediaStreamRequest } from './lib/stream-auth.js';
+import { createStreamToken, verifyMediaStreamRequest, verifyStreamToken } from './lib/stream-auth.js';
 import { createActionGateRuntime } from './lib/action-gate-runtime.js';
 import { initAdminV2Services } from './lib/admin-v2-runtime.js';
 import {
@@ -229,7 +229,10 @@ if (!OPENAI_API_KEY) {
 }
 
 // Fastifyを初期化
-const fastify = Fastify();
+// maxParamLength (default 100) must exceed the stream token length (~140)
+// or the /media-stream/:token upgrade route stops matching and Twilio
+// connects into a 404 — seen in production on 2026-09-19.
+const fastify = Fastify({ maxParamLength: 512 });
 fastify.register(fastifyFormBody);
 fastify.register(fastifyWs);
 
@@ -799,7 +802,7 @@ fastify.post('/handoff/dial-status', async (request, reply) => {
 
 // メディアストリーム用のWebSocketルート
 fastify.register(async (fastify) => {
-    fastify.get('/media-stream', { websocket: true }, async (connection, req) => {
+    const handleMediaStreamConnection = async (connection, req) => {
         // Access boundary: the upgrade must carry the stream token issued by a
         // signature-verified webhook. Rejected connections close before any
         // provider socket is created — an unauthenticated stream can never
@@ -808,20 +811,35 @@ fastify.register(async (fastify) => {
             secret: TWILIO_AUTH_TOKEN,
             enabled: TWILIO_STREAM_AUTH_ENABLED
         });
+        let boundCallSid = streamAuth.callSid || '';
+        let streamAuthDeferred = false;
+        let authDeadline = null;
         if (!streamAuth.ok) {
-            auditLog('twilio.media_stream.rejected', {
-                actor: 'unknown',
-                target: 'media-stream',
-                result: 'failure',
-                metadata: { reason: streamAuth.reason }
-            });
-            connection.close(4403, 'forbidden');
-            return;
+            // An invalid token is rejected outright. A MISSING token is
+            // deferred: Twilio drops the <Stream url> query on connect, so the
+            // credential may still arrive via <Parameter> in the start frame
+            // (start.customParameters.stream_token). The decision lands before
+            // the stream is accepted — the provider socket is already open, so
+            // the window is bounded by a short deadline.
+            if (streamAuth.reason !== 'missing_stream_token') {
+                auditLog('twilio.media_stream.rejected', {
+                    actor: 'unknown',
+                    target: 'media-stream',
+                    result: 'failure',
+                    metadata: { reason: streamAuth.reason }
+                });
+                connection.close(4403, 'forbidden');
+                return;
+            }
+            streamAuthDeferred = true;
+            authDeadline = setTimeout(() => {
+                if (streamAuthDeferred) connection.close(4403, 'stream_auth_timeout');
+            }, 10_000);
+            authDeadline.unref?.();
         }
         if (streamAuth.bypassed) {
             console.warn('TWILIO_STREAM_AUTH_ENABLED=false — unauthenticated media streams accepted (development only)');
         }
-        const boundCallSid = streamAuth.callSid || '';
         console.log('Media stream connected');
         const pendingTwilioMessages = [];
         let twilioMessageHandler = null;
@@ -2264,6 +2282,17 @@ fastify.register(async (fastify) => {
             try {
                 const data = JSON.parse(message.toString());
 
+                if (streamAuthDeferred && data.event !== 'start' && data.event !== 'connected') {
+                    auditLog('twilio.media_stream.rejected', {
+                        actor: 'unknown',
+                        target: 'media-stream',
+                        result: 'failure',
+                        metadata: { reason: 'stream_auth_required' }
+                    });
+                    connection.close(4403, 'forbidden');
+                    return;
+                }
+
                 switch (data.event) {
                     case 'media':
                         if (data.media?.payload) {
@@ -2274,6 +2303,26 @@ fastify.register(async (fastify) => {
                         }
                         break;
                     case 'start':
+                        if (streamAuthDeferred) {
+                            const paramToken = data.start?.customParameters?.stream_token || '';
+                            const verified = verifyStreamToken(paramToken, TWILIO_AUTH_TOKEN);
+                            if (!verified) {
+                                auditLog('twilio.media_stream.rejected', {
+                                    actor: 'unknown',
+                                    target: 'media-stream',
+                                    result: 'failure',
+                                    metadata: { reason: 'missing_or_invalid_stream_token' }
+                                });
+                                connection.close(4403, 'forbidden');
+                                break;
+                            }
+                            boundCallSid = verified.callSid;
+                            streamAuthDeferred = false;
+                            if (authDeadline) {
+                                clearTimeout(authDeadline);
+                                authDeadline = null;
+                            }
+                        }
                         if (!data.start?.streamSid) {
                             console.warn('Twilio stream start message did not include streamSid');
                             break;
@@ -2454,7 +2503,13 @@ fastify.register(async (fastify) => {
             void handleTwilioClose(code, reason);
         }
 
-    });
+    };
+
+    // Twilio drops the <Stream url> query string on connect, so the token is
+    // carried in the URL path (/media-stream/<token>); the bare route stays
+    // for query-token local tests and the <Parameter> deferred channel.
+    fastify.get('/media-stream', { websocket: true }, handleMediaStreamConnection);
+    fastify.get('/media-stream/:token', { websocket: true }, handleMediaStreamConnection);
 });
 
 // サーバーを起動
