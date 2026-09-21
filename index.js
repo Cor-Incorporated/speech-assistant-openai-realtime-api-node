@@ -1507,6 +1507,12 @@ fastify.register(async (fastify) => {
         let toolWatchdogNudges = 0;
         let toolWatchdogResponseDone = false;
         let toolWatchdogOutput = { packets: 0, transcript: '', transcriptSeen: false };
+        // ACCEPT-Y01/Y02: the silence deadline is anchored to the last
+        // audible progress (audio or transcript reaching the caller),
+        // and a voice-only "answer" stays provisional until transcript
+        // evidence for the same output span can no longer arrive.
+        let toolWatchdogLastProgressAt = 0;
+        let toolWatchdogVoiceOnlyAnswered = false;
         const TOOL_WATCHDOG_MAX_NUDGES = 2;
         const TOOL_WATCHDOG_MAX_TRANSCRIPT_CHARS = 400;
         // ACCEPT-V01: output SIZE cannot prove an answer was delivered —
@@ -1545,36 +1551,43 @@ fastify.register(async (fastify) => {
             toolWatchdogNudges = 0;
             toolWatchdogResponseDone = false;
             toolWatchdogOutput = { packets: 0, transcript: '', transcriptSeen: false };
+            toolWatchdogVoiceOnlyAnswered = false;
+            toolWatchdogLastProgressAt = 0;
             clearToolWatchdog();
         };
         const substantiveTranscriptChars = (text) => {
-            let rest = String(text).replace(/[\s、。！？!?,.…・]/g, '');
-            let substantive = 0;
-            // ACCEPT-W01/X01: deltas arrive as fragments, so scan
-            // left-to-right keeping BOTH readings of an ambiguous
-            // boundary alive. A remainder that is still a proper PREFIX
-            // of a waiting phrase (「確認して」→「確認しております」,
-            // 「少々お待ちくださいま」→「…ませ」) is checked BEFORE any
-            // completed phrase is stripped — otherwise the shorter
-            // phrase would be consumed first and its unfinished
-            // continuation (「ま」) would masquerade as answer content.
-            // Classification of the accumulated text is then identical
-            // regardless of delta granularity or audio ordering.
-            while (rest.length > 0) {
+            const cleaned = String(text).replace(/[\s、。！？!?,.…・]/g, '');
+            const length = cleaned.length;
+            // ACCEPT-W01/X01/Y03: deltas arrive as fragments and known
+            // waiting phrases can be CONCATENATED, so no single greedy
+            // segmentation is safe — 「今しばらくお待ちくださいませ」
+            // greedily eats 「今しばらくお待ちください」 and leaves
+            // 「ませ」 as fake answer content. Compute the MINIMUM chars
+            // not coverable by dictionary phrases over all valid
+            // segmentations; a suffix that is still a proper prefix of
+            // a phrase (「確認して」→「確認しております」) stays pending
+            // and contributes zero. Classification of the accumulated
+            // text is then identical regardless of delta granularity,
+            // phrase ordering, or audio interleaving.
+            const minSubstantive = new Array(length + 1);
+            minSubstantive[length] = 0;
+            for (let i = length - 1; i >= 0; i--) {
+                const rest = cleaned.slice(i);
                 if (TOOL_WATCHDOG_WAITING_PHRASES.some(
                     (phrase) => phrase.length > rest.length && phrase.startsWith(rest))) {
-                    break;
-                }
-                const completed = TOOL_WATCHDOG_WAITING_PHRASES_LONGEST_FIRST
-                    .find((phrase) => rest.startsWith(phrase));
-                if (completed) {
-                    rest = rest.slice(completed.length);
+                    minSubstantive[i] = 0;
                     continue;
                 }
-                substantive += 1;
-                rest = rest.slice(1);
+                let best = 1 + minSubstantive[i + 1];
+                for (const phrase of TOOL_WATCHDOG_WAITING_PHRASES_LONGEST_FIRST) {
+                    if (rest.startsWith(phrase)) {
+                        const candidate = minSubstantive[i + phrase.length];
+                        if (candidate < best) best = candidate;
+                    }
+                }
+                minSubstantive[i] = best;
             }
-            return substantive;
+            return minSubstantive[0];
         };
         // The pending continuation is satisfied only when the response
         // completed AND the caller actually heard answer content — a bare
@@ -1595,6 +1608,21 @@ fastify.register(async (fastify) => {
             return !toolWatchdogOutput.transcriptSeen
                 && toolWatchdogOutput.packets >= TOOL_WATCHDOG_MIN_VOICE_ONLY_PACKETS;
         };
+        // ACCEPT-Y02: a voice-only "answered" is PROVISIONAL, not a
+        // disarm — a transcript delta for the same output span can still
+        // arrive and prove the audio was filler (「少々お待ちくださいませ」
+        // voiced before its transcript). Provisional settle keeps the
+        // accumulated output so the late transcript is judged against
+        // the same substantive rule, and filler re-arms the watchdog.
+        const settleToolWatchdogAnswered = () => {
+            if (!toolWatchdogOutput.transcriptSeen) {
+                toolWatchdogPending = false;
+                toolWatchdogVoiceOnlyAnswered = true;
+                clearToolWatchdog();
+                return;
+            }
+            disarmToolWatchdog();
+        };
         // RECHECK-RR02/N09: a frame of pure silence is not audible progress.
         // μ-law silence is 0xff/0x7f and PCM16 silence is 0x00 — a payload
         // made only of these bytes keeps the socket busy but says nothing.
@@ -1605,7 +1633,28 @@ fastify.register(async (fastify) => {
             return bytes.length === 0 || bytes.every((b) => SILENT_AUDIO_BYTES.has(b));
         };
         const noteToolAudibleProgress = (kind, delta) => {
-            if (!toolWatchdogPending) return;
+            if (!toolWatchdogPending) {
+                // ACCEPT-Y02: after a provisional voice-only answer, a
+                // transcript delta for the same output span re-judges
+                // the accumulated audio — filler re-arms the watchdog
+                // with the deadline still anchored to the last audible
+                // progress, real answer content disarms for good.
+                if (kind !== 'transcript' || !delta || !toolWatchdogVoiceOnlyAnswered) return;
+                toolWatchdogOutput.transcriptSeen = true;
+                toolWatchdogOutput.transcript = (
+                    toolWatchdogOutput.transcript + String(delta)
+                ).slice(-TOOL_WATCHDOG_MAX_TRANSCRIPT_CHARS);
+                toolWatchdogVoiceOnlyAnswered = false;
+                if (toolWatchdogAnswered()) {
+                    disarmToolWatchdog();
+                    return;
+                }
+                toolWatchdogPending = true;
+                const rearmMs = Math.max(
+                    toolWatchdogMs - (Date.now() - toolWatchdogLastProgressAt), 1);
+                armToolWatchdog(1, rearmMs);
+                return;
+            }
             if (kind === 'audio') toolWatchdogOutput.packets += 1;
             if (kind === 'transcript') {
                 toolWatchdogOutput.transcriptSeen = true;
@@ -1613,20 +1662,23 @@ fastify.register(async (fastify) => {
                     toolWatchdogOutput.transcript + String(delta || '')
                 ).slice(-TOOL_WATCHDOG_MAX_TRANSCRIPT_CHARS);
             }
+            toolWatchdogLastProgressAt = Date.now();
             // Real output arrived — push the deadline out, and release the
             // watchdog entirely once a completed answer was actually heard.
             if (toolWatchdogAnswered()) {
-                disarmToolWatchdog();
+                settleToolWatchdogAnswered();
                 return;
             }
             armToolWatchdog(1);
         };
-        const armToolWatchdog = (stage = 1) => {
+        const armToolWatchdog = (stage = 1, delayMs = toolWatchdogMs) => {
             if (providerMode !== 'live' || toolWatchdogMs < 2000) return;
             if (!toolWatchdogPending) {
                 toolWatchdogNudges = 0;
                 toolWatchdogResponseDone = false;
                 toolWatchdogOutput = { packets: 0, transcript: '', transcriptSeen: false };
+                toolWatchdogVoiceOnlyAnswered = false;
+                toolWatchdogLastProgressAt = Date.now();
             }
             toolWatchdogPending = true;
             clearToolWatchdog();
@@ -1678,7 +1730,17 @@ fastify.register(async (fastify) => {
                         connection.close(1000, 'tool_watchdog_silence');
                     }
                 });
-            }, toolWatchdogMs);
+            }, delayMs);
+        };
+        // ACCEPT-Y01: a NEW delegated tool or its response.create while
+        // the watchdog is already pending must NOT extend the silence
+        // deadline or rewind the recovery stage — the clock stays
+        // anchored to the last audible progress. Backend completion and
+        // tool plumbing are not caller-audible progress.
+        const noteToolWatchdogContinuation = () => {
+            if (providerMode !== 'live' || toolWatchdogMs < 2000) return;
+            if (toolWatchdogPending && toolWatchdogTimer) return;
+            armToolWatchdog(1);
         };
 
         const sendRealtimeResponseCreate = (reason) => {
@@ -1690,7 +1752,7 @@ fastify.register(async (fastify) => {
                 // accepted user turn.
                 if (!liveState.started || String(reason).startsWith('accepted_transcript')) return;
                 openAiWs?.send(JSON.stringify(liveResponseCreate(`rc_${Date.now()}`)));
-                armToolWatchdog();
+                noteToolWatchdogContinuation();
                 return;
             }
 
@@ -2214,14 +2276,17 @@ fastify.register(async (fastify) => {
                             // output was also observed (and vice versa).
                             if (completed?.status === 'response.completed') {
                                 toolWatchdogResponseDone = true;
-                                if (toolWatchdogAnswered()) disarmToolWatchdog();
+                                if (toolWatchdogPending && toolWatchdogAnswered()) {
+                                    settleToolWatchdogAnswered();
+                                }
                             }
                             if (completed?.status === 'response.completed' && completed.calls?.length) {
                                 // Tool work (incl. the async knowledge lookup)
                                 // is now expected — audible progress must
                                 // follow within the deadline or the watchdog
-                                // stages fire.
-                                armToolWatchdog();
+                                // stages fire. A continuation while already
+                                // pending never extends that deadline (Y01).
+                                noteToolWatchdogContinuation();
                                 void (async () => {
                                     const doneEvent = toRealtimeDoneEvent(completed.calls, completed.status);
                                     const knowledgeHandled = await handleKnowledgeToolCalls(doneEvent);
