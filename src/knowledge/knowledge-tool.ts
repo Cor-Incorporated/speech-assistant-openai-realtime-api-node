@@ -13,6 +13,8 @@ export interface KnowledgeToolResult {
     stale: boolean;
     items: Array<{
         knowledgeId: string;
+        key: string;
+        title: string;
         revision: number;
         answer: string | null;
         sourceIds: string[];
@@ -76,6 +78,8 @@ export async function executeKnowledgeLookup(
             stale: result.stale,
             items: result.items.map((item) => ({
                 knowledgeId: item.knowledgeId,
+                key: item.key,
+                title: item.title,
                 revision: item.revision,
                 answer: item.answer,
                 sourceIds: item.sourceIds,

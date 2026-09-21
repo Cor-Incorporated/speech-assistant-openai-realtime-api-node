@@ -1506,13 +1506,28 @@ fastify.register(async (fastify) => {
         let toolWatchdogPending = false;
         let toolWatchdogNudges = 0;
         let toolWatchdogResponseDone = false;
-        let toolWatchdogOutput = { packets: 0, chars: 0 };
+        let toolWatchdogOutput = { packets: 0, transcript: '', transcriptSeen: false };
         const TOOL_WATCHDOG_MAX_NUDGES = 2;
-        // One filler packet / a short "少々お待ちください" is not the
-        // answer — a real reply produces many audio frames or a longer
-        // transcript (B06 vs the observed "代表取締役は寺田康佑です。").
+        const TOOL_WATCHDOG_MAX_TRANSCRIPT_CHARS = 400;
+        // ACCEPT-V01: output SIZE cannot prove an answer was delivered —
+        // "ただいま確認しております。少々お待ちください。" is longer than
+        // "寺田康佑です". Waiting/acknowledgement phrases are stripped
+        // from the observed transcript and only the remainder counts as
+        // answer content (D01/D02 vs the observed representative answer).
+        const TOOL_WATCHDOG_WAITING_PATTERN = new RegExp([
+            '少々お待ちくださいませ', '少々お待ちください', '少々お待ち下さい',
+            '少しお待ちください', '今しばらくお待ちください', 'しばらくお待ちください',
+            'お待ちくださいませ', 'お待ちください', 'お待ち下さい',
+            'お待たせいたしました', 'お待たせしました',
+            '確認しております', '確認いたします', '確認してまいります', '確認中です',
+            'お調べしております', 'お調べいたします', 'お調べしてまいります', 'お調べ中です',
+            '承知いたしました', 'かしこまりました', '承知しました',
+            '失礼いたしました', '恐れ入ります', '申し訳ございません', '申し訳ありません',
+            'ただいま', '只今', '今しばらく', 'しばらく', '少々'
+        ].join('|'), 'g');
+        const TOOL_WATCHDOG_MIN_SUBSTANTIVE_CHARS = 4;
         const TOOL_WATCHDOG_MIN_AUDIO_PACKETS = 8;
-        const TOOL_WATCHDOG_MIN_TRANSCRIPT_CHARS = 12;
+        const TOOL_WATCHDOG_MIN_VOICE_ONLY_PACKETS = 40;
         const toolWatchdogMs = Math.min(Math.max(Number(LIVE_TOOL_WATCHDOG_MS) || 0, 0), 60000);
         const clearToolWatchdog = () => {
             if (toolWatchdogTimer) {
@@ -1524,17 +1539,32 @@ fastify.register(async (fastify) => {
             toolWatchdogPending = false;
             toolWatchdogNudges = 0;
             toolWatchdogResponseDone = false;
-            toolWatchdogOutput = { packets: 0, chars: 0 };
+            toolWatchdogOutput = { packets: 0, transcript: '', transcriptSeen: false };
             clearToolWatchdog();
         };
+        const substantiveTranscriptChars = (text) => String(text)
+            .replace(TOOL_WATCHDOG_WAITING_PATTERN, ' ')
+            .replace(/[\s、。！？!?,.…・]/g, '')
+            .length;
         // The pending continuation is satisfied only when the response
-        // completed AND produced substantive audible output — both facts
-        // are required so an empty completion or a filler alone can never
-        // masquerade as a delivered answer.
-        const toolWatchdogAnswered = () =>
-            toolWatchdogResponseDone
-            && (toolWatchdogOutput.packets >= TOOL_WATCHDOG_MIN_AUDIO_PACKETS
-                || toolWatchdogOutput.chars >= TOOL_WATCHDOG_MIN_TRANSCRIPT_CHARS);
+        // completed AND the caller actually heard answer content — a bare
+        // lifecycle completion, silent frames, or a waiting phrase alone
+        // can never masquerade as a delivered answer.
+        const toolWatchdogAnswered = () => {
+            if (!toolWatchdogResponseDone) return false;
+            const substantive = substantiveTranscriptChars(toolWatchdogOutput.transcript);
+            if (substantive >= TOOL_WATCHDOG_MIN_SUBSTANTIVE_CHARS) return true;
+            // A very short but real answer (「はい」「そうです」) still
+            // counts — but only with actual voice behind it, so a
+            // transcript-only filler burst can never disarm.
+            if (substantive > 0 && toolWatchdogOutput.packets >= TOOL_WATCHDOG_MIN_AUDIO_PACKETS) return true;
+            // Transcript-absent fallback for providers that voice without
+            // transcript events: only a clearly voiced reply qualifies.
+            // Once ANY transcript was seen, bare audio bursts are filler
+            // and must not disarm the call (D01).
+            return !toolWatchdogOutput.transcriptSeen
+                && toolWatchdogOutput.packets >= TOOL_WATCHDOG_MIN_VOICE_ONLY_PACKETS;
+        };
         // RECHECK-RR02/N09: a frame of pure silence is not audible progress.
         // μ-law silence is 0xff/0x7f and PCM16 silence is 0x00 — a payload
         // made only of these bytes keeps the socket busy but says nothing.
@@ -1544,10 +1574,15 @@ fastify.register(async (fastify) => {
             const bytes = Buffer.from(deltaBase64, 'base64');
             return bytes.length === 0 || bytes.every((b) => SILENT_AUDIO_BYTES.has(b));
         };
-        const noteToolAudibleProgress = (kind, amount) => {
+        const noteToolAudibleProgress = (kind, delta) => {
             if (!toolWatchdogPending) return;
-            if (kind === 'audio') toolWatchdogOutput.packets += amount;
-            if (kind === 'transcript') toolWatchdogOutput.chars += amount;
+            if (kind === 'audio') toolWatchdogOutput.packets += 1;
+            if (kind === 'transcript') {
+                toolWatchdogOutput.transcriptSeen = true;
+                toolWatchdogOutput.transcript = (
+                    toolWatchdogOutput.transcript + String(delta || '')
+                ).slice(-TOOL_WATCHDOG_MAX_TRANSCRIPT_CHARS);
+            }
             // Real output arrived — push the deadline out, and release the
             // watchdog entirely once a completed answer was actually heard.
             if (toolWatchdogAnswered()) {
@@ -1561,7 +1596,7 @@ fastify.register(async (fastify) => {
             if (!toolWatchdogPending) {
                 toolWatchdogNudges = 0;
                 toolWatchdogResponseDone = false;
-                toolWatchdogOutput = { packets: 0, chars: 0 };
+                toolWatchdogOutput = { packets: 0, transcript: '', transcriptSeen: false };
             }
             toolWatchdogPending = true;
             clearToolWatchdog();
@@ -2090,9 +2125,11 @@ fastify.register(async (fastify) => {
 
                         case 'output_transcript_delta':
                             // An empty delta is not progress — only real
-                            // transcript text resets the window.
+                            // transcript text resets the window, and its
+                            // content decides whether a real answer (vs a
+                            // waiting phrase) was delivered (V01).
                             if (classified.delta) {
-                                noteToolAudibleProgress('transcript', String(classified.delta).length);
+                                noteToolAudibleProgress('transcript', classified.delta);
                             }
                             liveState.agentFrag += classified.delta || '';
                             scheduleLiveAgentTurnFinalize();
