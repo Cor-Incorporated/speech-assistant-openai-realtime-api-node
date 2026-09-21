@@ -104,3 +104,31 @@
 - 未認証プローブ2回の前後で`callLogsV2`は既存2件のまま(新規業務レコード0)
 - Cloud Logging(新revision): 起動正常、プローブの接続/切断を記録、エラーなし
 - 未実施: 認証済みストリームの本番検証(無音watchdogの実発話・provider音声・v2終了投影)はTwilio Auth TokenのHMAC署名が必要。実PSTN通話での確認待ち(番号確認・無音回復・商品料金の実音声での再現を含む)
+
+## 第4回検収(2026-09-21) 修復記録 — U01〜U03
+
+**第4回検収**: 前回8失敗は解消したが番号確認とLive watchdogにP1残存。判定「全シナリオ受入は保留」
+**修復ブランチ**: `fix/reception-round4-remediation-20260921` → PR #103 (develop宛、merge commit `dadcce5`)
+
+| # | 指摘 | 対応 | 検証 |
+|---|---|---|---|
+| U01 | 「いいえ、もう一度お願いします」「はい、間違いです」が肯定扱いで番号確認を通過 | 否定パターンに「いいえ/いえ」「間違いです/でした/だ」「もう一度/もう一回」を追加し肯定より優先評価。「間違いありません」は肯定として維持 | `phone-corrections.test.mjs` C01〜C04全緑(修復前C01/C02 FAIL) |
+| U02 | 正常回答後もwatchdogが残り、回答後の無言で誤回復が発動(実Liveで+30秒に回復指示送信を観測) | 解除を「delegation応答のresponse.completed受信」かつ「実質的な可聴出力(非無音audio 8パケット以上 or transcript 12文字以上)」の両立に限定。正常回答後は通常会話待機へ戻る | `watchdog-contract.test.mjs`緑。B05/B06の無音終了は維持 |
+| U03 | watchdog回復指示がResponses delegation IDをclient delegationとして送り実APIに`Unknown client delegation`で拒否 | `session.instructions.append`の`delegation_id`を`null`固定(session scope) | 同テストC05緑(修復前FAIL) |
+
+## 第4回検収修復の検証エビデンス
+
+- `npm test` — `# tests 391 / # pass 391 / # fail 0`(取り込んだ検収probe2ファイル含む)
+- `review-artifacts/phone-corrections.test.mjs` — C01〜C04全緑(修復前2 FAILでred確認済み)
+- `review-artifacts/watchdog-contract.test.mjs` — 16サブテスト全緑(C05 delegation_id=null、B05/B06停止検知維持、N08/N09/R02含む)
+- CI(Node checks/h5-admission/gitleaks)— PR #103全緑
+
+## 第4回検収修復の本番デプロイ検証(2026-09-21 17:5x JST)
+
+- PR #103をdevelopへマージ(`dadcce5`)、Actions run `35580179883` Deploy Cloud Run成功(2分10秒)
+- 新revision `speech-assistant-realtime-00039-v6p` が100%トラフィック
+- `/health`=`{"status":"ok"}`、`/`=200
+- トークンなしstart→`closed:4403:forbidden`、未認証アイドル→`closed:4403:stream_auth_timeout`(10.1秒)
+- 未認証プローブ2回の前後で`callLogsV2`は既存2件のまま(新規業務レコード0)
+- Cloud Logging(新revision): 起動正常、プローブの接続/切断のみ記録、エラーなし
+- 未実施: U02の「正常回答後の無言で誤回復しない」は実Live APIでしか完全検証できない。実PSTN通話または認証済みストリーム試験での再確認待ち(電話受付時間13:00〜17:00の知識反映はユーザー確定値として開始阻害に含めず、未反映のまま)
