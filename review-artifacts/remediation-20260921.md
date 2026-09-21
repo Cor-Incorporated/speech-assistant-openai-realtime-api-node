@@ -213,3 +213,31 @@
 - 未認証プローブ2回の前後で`callLogsV2`は既存2件のまま(新規業務レコード0)
 - Cloud Logging(新revision): ERROR以上のログなし
 - 未実施: X01の「曖昧境界で誤解除しない」はwire契約とmockで検証済み。実Live APIでの最終確認は実PSTN通話または認証済みストリーム試験待ち。V02は今回0/3で非再現だが小標本のため次回検収での再確認が望ましい
+
+## 第8回検収(2026-09-22) 修復記録 — Y01〜Y04
+
+**第8回検収**: X01の反例は解消したが、無音監視のP1残件3件(Y01: tool受付で期限延長、Y02: 音声先行で不可逆解除、Y03: 連結待機句で誤判定)と電話番号P2残件(Y04: カタカナ読みで回収不能)を確認。判定「全シナリオ受入への移行は保留、短い診断通話は実施可能」
+**修復ブランチ**: `fix/reception-round8-remediation-20260922` → PR #111 (develop宛、merge commit `f5c3df0`)
+
+| # | 指摘 | 対応 | 検証 |
+|---|---|---|---|
+| Y01 | pending中の追加tool・backend完了・response.createがタイマー再設定+stage巻戻しで無音期限を延長(31.9秒) | `noteToolWatchdogContinuation`を新設。pending中の新規toolはタイマー・stage・nudgesに触れず、期限は最後の可聴進捗起点のまま | `silence-deadline.test.mjs` I01緑(切断20.0秒、修復前31.5秒超) |
+| Y02 | `!transcriptSeen && packets>=40`が不可逆解除。音声先行→待機文transcript後着で誤解除 | 音声のみ回答判定を`toolWatchdogVoiceOnlyAnswered`暫定状態化。同出力区間のtranscript後着で再判定し、fillerなら最後の可聴進捗起点の残時間で再武装 | `audio-order.test.mjs` G01/G02緑(修復前G02 FAIL) |
+| Y03 | 連結した既知待機句で最長一致が「ませ」等を実質文字に残す | `substantiveTranscriptChars`を全句分割の最小実質文字数DPへ変更。単独・連結・分割・語尾prefixすべて粒度不変 | `combined-filler.test.mjs` H01緑、境界スキャン15,577チェック0失敗 |
+| Y04 | 実Liveが番号をカタカナ読み(ゼロキューゼロ等)で送信し候補ゼロ | 候補抽出内部でかな・漢数字読みを数字へ正規化(長音キュー含む)。dictated digit間の、・空白を接続。欠落桁の推測補完・確認省略なし | `phonetic-phone.test.mjs` J01/J02緑、既存phone-validation 10件維持 |
+
+## 第8回検収修復の検証エビデンス
+
+- `npm test` — `# tests 403 / # pass 403 / # fail 0 / # cancelled 0`(新規probe4ファイル含む)
+- 境界スキャン — 31句×2句連結の全prefix 15,577チェックで0失敗
+- CI(Node checks/h5-admission/gitleaks)— PR #111全緑
+
+## 第8回検収修復の本番デプロイ検証(2026-09-22 0:5x JST)
+
+- PR #111をdevelopへマージ(`f5c3df0`)、Actions run `35624035403` Deploy Cloud Run成功(2分28秒)
+- 新revision `speech-assistant-realtime-00047-mhz` が100%トラフィック
+- `/health`=`{"status":"ok"}`、`/`=200
+- トークンなしstart→`closed:4403:forbidden`、未認証アイドル→`closed:4403:stream_auth_timeout`(10.3秒)
+- 未認証プローブ2回の前後で`callLogsV2`は既存2件のまま(新規業務レコード0)
+- Cloud Logging(新revision): ERROR以上のログなし
+- 未実施: Y01〜Y03はwire契約とmockで検証済み。実Live APIでの最終確認(実PSTN音声品質・自然な遅延でのtranscript順序)は人間受入テスト待ち。Y04は実Live入力値での単体再現確認済み、実通話での復唱成立は人間テスト待ち
