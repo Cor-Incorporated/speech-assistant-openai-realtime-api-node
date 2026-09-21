@@ -42,6 +42,18 @@ gcloud run deploy speech-assistant-realtime \
 
 `.github/workflows/deploy-cloud-run.yml` は `develop` へのpush時、または手動実行時にCloud Runへデプロイします。
 
+**環境変数はワークフローの `--set-env-vars` が全量を管理します**（上記の手動デプロイ例は旧構成）。`gcloud run services update --update-env-vars` での直接変更は次回デプロイで消えるため、恒久設定はワークフロー `env:` ブロックと `--set-env-vars` リストの**両方**へ追加してください。GitHub Variables/Secretsとの対応表はワークフロー本体を参照してください。
+
+2026-09に追加された主要設定:
+
+| 変数 | 管理先 | 内容 |
+|---|---|---|
+| `TWILIO_STREAM_AUTH_ENABLED` | GitHub Variable | Media Streams WS認証（`docs/media-stream-authentication.md`） |
+| `ADMIN_V2_SUBJECT_MAP` | GitHub Variable | admin v2の Basicユーザー→subject/roles マッピング |
+| `HANDOFF_NUMBERS` / `HANDOFF_CALLER_ID` | Secret Manager | 転送先（contract/general）・発信者ID |
+| `VOICE_PROVIDER` / `LIVE_*` | GitHub Variable | GPT-Liveプロバイダ設定 |
+| `ROUTING_PROVIDER` | GitHub Variable | `jev_shadow`（Jevは記録のみ） |
+
 認証はGitHub Actions OIDC + Google Cloud Workload Identity Federationを使います。長期のGCPサービスアカウントキーはGitHubへ保存しません。
 
 `ADMIN_BASIC_USER` はGitHub Repository Variable、`ADMIN_BASIC_PASSWORD` はGoogle Cloud Secret Manager `admin-basic-password` で管理します。GitHub Secretに管理UIパスワードを保存しない構成です。
