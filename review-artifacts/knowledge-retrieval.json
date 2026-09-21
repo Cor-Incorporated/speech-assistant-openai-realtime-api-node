@@ -1,0 +1,104 @@
+[
+  {
+    "query": "代表者",
+    "status": "found",
+    "items": [
+      {
+        "key": "company.representative",
+        "answer": "代表取締役は寺田康佑です。",
+        "requiresHumanReview": false
+      }
+    ]
+  },
+  {
+    "query": "代表取締役",
+    "status": "found",
+    "items": [
+      {
+        "key": "company.representative",
+        "answer": "代表取締役は寺田康佑です。",
+        "requiresHumanReview": false
+      }
+    ]
+  },
+  {
+    "query": "Cor.株式会社の代表取締役の名前",
+    "status": "unknown",
+    "items": []
+  },
+  {
+    "query": "御社の代表取締役の名前を教えてください",
+    "status": "unknown",
+    "items": []
+  },
+  {
+    "query": "会社名",
+    "status": "found",
+    "items": [
+      {
+        "key": "company.name",
+        "answer": "Cor.株式会社です。",
+        "requiresHumanReview": false
+      }
+    ]
+  },
+  {
+    "query": "Cor.株式会社の営業時間、営業日、定休日",
+    "status": "found",
+    "items": [
+      {
+        "key": "hours.business",
+        "answer": "営業時間は現在この受付で確定情報を確認できないため、担当者に確認いたします。",
+        "requiresHumanReview": true
+      }
+    ]
+  },
+  {
+    "query": "営業時間",
+    "status": "found",
+    "items": [
+      {
+        "key": "hours.business",
+        "answer": "営業時間は現在この受付で確定情報を確認できないため、担当者に確認いたします。",
+        "requiresHumanReview": true
+      }
+    ]
+  },
+  {
+    "query": "Griftの料金を教えてください",
+    "status": "found",
+    "items": [
+      {
+        "key": "grift.overview",
+        "answer": "Griftは、開発実績や案件の前提を使って、参考見積とその根拠を整理するAI見積支援ツールです。",
+        "requiresHumanReview": false
+      },
+      {
+        "key": "grift.target",
+        "answer": "主に受託開発チーム向けで、提案準備や発注側の見積確認についても相談いただけます。",
+        "requiresHumanReview": false
+      },
+      {
+        "key": "grift.stage",
+        "answer": "現在はTeam Betaとして提供範囲を検証しています。利用方法は個別にご案内します。",
+        "requiresHumanReview": false
+      }
+    ]
+  },
+  {
+    "query": "所在地",
+    "status": "found",
+    "items": [
+      {
+        "key": "company.address",
+        "answer": "所在地は福岡市中央区天神2丁目3番10号、天神パインクレスト719号です。",
+        "requiresHumanReview": false
+      }
+    ]
+  },
+  {
+    "query": "御社の住所を教えてください",
+    "status": "unknown",
+    "items": []
+  }
+]

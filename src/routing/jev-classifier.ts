@@ -65,12 +65,17 @@ export class DisabledJevTransport implements JevTransport {
     }
 }
 
-const PHONE_LIKE_PATTERN = /(?:\+81|0)\d[\d\s().ー‐-]{7,}\d/g;
+// REVIEW-R06: full-width Japanese digits/punctuation (０９０－…) must be
+// normalized to ASCII BEFORE pattern matching — otherwise the PII boundary
+// leaks raw phone numbers to the external Jev API. The +81 branch allows a
+// separator between the country code and the subscriber digits.
+const PHONE_LIKE_PATTERN = /(?:\+81[\s().ー‐-]*\d[\d\s().ー‐-]{6,}\d|0\d[\d\s().ー‐-]{7,}\d)/g;
 const EMAIL_PATTERN = /[\w.+-]+@[\w-]+\.[\w.]+/g;
 
 /** Mask contact details before anything leaves the process. */
 export function maskSensitiveText(text: string): string {
     return String(text || '')
+        .normalize('NFKC')
         .replace(EMAIL_PATTERN, '<EMAIL>')
         .replace(PHONE_LIKE_PATTERN, '<CALLBACK_PHONE>');
 }

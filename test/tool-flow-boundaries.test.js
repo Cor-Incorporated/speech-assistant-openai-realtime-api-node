@@ -32,7 +32,7 @@ describe('F05 — tool call boundaries', () => {
         const result = run(event, {
             state: {
                 turns: [],
-                callbackPhone: { valid: true, normalizedPhoneNumber: '+819012345678' }
+                callbackPhone: { valid: true, confirmed: true, normalizedPhoneNumber: '+819012345678' }
             }
         });
         assert.equal(result.handled, true);

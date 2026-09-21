@@ -3,6 +3,8 @@
 // different things: the same business action may arrive under two provider
 // IDs after a resend or reconnect, and must execute once.
 
+import { Firestore, type CollectionReference, type DocumentData } from '@google-cloud/firestore';
+
 export type ActionStatus = 'prepared' | 'running' | 'succeeded' | 'failed' | 'outcome_unknown';
 
 export interface ActionRecord {
@@ -55,6 +57,70 @@ export class InMemoryLedgerStore implements ActionLedgerStore {
         const updated = { ...existing, ...patch, actionId };
         this.records.set(actionId, updated);
         return { ...updated };
+    }
+}
+
+/**
+ * Firestore-backed store — the same named database as the call log writers.
+ * `insertIfAbsent` runs inside a transaction so two Cloud Run instances
+ * racing on the same business action produce exactly one 'prepared' winner;
+ * the loser reads back the winner's record as 'duplicate'.
+ */
+export class FirestoreLedgerStore implements ActionLedgerStore {
+    private firestore: Firestore | null;
+    private readonly projectId: string | undefined;
+    private readonly databaseId: string | undefined;
+    private readonly collectionName: string;
+
+    constructor(options: { firestore?: Firestore; projectId?: string; databaseId?: string; collection?: string } = {}) {
+        this.firestore = options.firestore ?? null;
+        this.projectId = options.projectId ?? process.env.GOOGLE_CLOUD_PROJECT ?? process.env.GOOGLE_PROJECT_ID;
+        this.databaseId = options.databaseId ?? process.env.CALL_LOG_FIRESTORE_DATABASE_ID;
+        this.collectionName = options.collection ?? 'actionLedger';
+    }
+
+    private db(): Firestore {
+        if (!this.firestore) {
+            const settings: { projectId?: string; databaseId?: string } = {};
+            if (this.projectId) settings.projectId = this.projectId;
+            if (this.databaseId) settings.databaseId = this.databaseId;
+            this.firestore = new Firestore(settings);
+        }
+        return this.firestore;
+    }
+
+    private col(): CollectionReference<DocumentData> {
+        return this.db().collection(this.collectionName);
+    }
+
+    async get(actionId: string): Promise<ActionRecord | null> {
+        const snap = await this.col().doc(actionId).get();
+        return snap.exists ? (snap.data() as ActionRecord) : null;
+    }
+
+    async insertIfAbsent(
+        record: ActionRecord
+    ): Promise<{ inserted: boolean; record: ActionRecord }> {
+        const ref = this.col().doc(record.actionId);
+        return this.db().runTransaction(async (tx) => {
+            const snap = await tx.get(ref);
+            if (snap.exists) {
+                return { inserted: false, record: snap.data() as ActionRecord };
+            }
+            tx.set(ref, record);
+            return { inserted: true, record };
+        });
+    }
+
+    async update(actionId: string, patch: Partial<ActionRecord>): Promise<ActionRecord | null> {
+        const ref = this.col().doc(actionId);
+        return this.db().runTransaction(async (tx) => {
+            const snap = await tx.get(ref);
+            if (!snap.exists) return null;
+            const updated = { ...(snap.data() as ActionRecord), ...patch, actionId };
+            tx.set(ref, updated);
+            return updated;
+        });
     }
 }
 

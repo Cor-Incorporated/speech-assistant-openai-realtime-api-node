@@ -88,6 +88,7 @@ import {
 import { createStreamToken, verifyMediaStreamRequest, verifyStreamToken } from './lib/stream-auth.js';
 import { createActionGateRuntime } from './lib/action-gate-runtime.js';
 import { initAdminV2Services } from './lib/admin-v2-runtime.js';
+import { initCallProjection, projectProviderCall } from './lib/call-projection-runtime.js';
 import {
     initKnowledgeTool,
     getKnowledgeToolDef,
@@ -389,6 +390,16 @@ if (adminV2.loaded) {
 } else {
     console.warn('admin v2 routes disabled: backend services failed to initialize');
 }
+
+// REVIEW-R09: real calls must also land in callLogsV2 — the projector uses
+// the same repositories as the admin v2 API so corrections, escalations and
+// audit events apply to production traffic. A missing build degrades to a
+// no-op rather than breaking calls.
+await initCallProjection({
+    callRepo: adminV2.callRepo ?? null,
+    escalationRepo: adminV2.escalationRepo ?? null,
+    log: console
+});
 
 // Voice knowledge tool — reads only the current published release through
 // the same repository the admin API writes to. A failed init simply means
@@ -820,9 +831,10 @@ fastify.register(async (fastify) => {
             // An invalid token is rejected outright. A MISSING token is
             // deferred: Twilio drops the <Stream url> query on connect, so the
             // credential may still arrive via <Parameter> in the start frame
-            // (start.customParameters.stream_token). The decision lands before
-            // the stream is accepted — the provider socket is already open, so
-            // the window is bounded by a short deadline.
+            // (start.customParameters.stream_token). The provider socket is
+            // NOT opened while deferred — connectProvider() runs only after
+            // the start-frame token verifies, and the window is bounded by a
+            // short deadline.
             if (streamAuth.reason !== 'missing_stream_token') {
                 auditLog('twilio.media_stream.rejected', {
                     actor: 'unknown',
@@ -945,9 +957,11 @@ fastify.register(async (fastify) => {
             console.error(`LIVE_AUDIO config invalid: ${liveAudioConfigError}; falling back to realtime`);
             providerMode = 'realtime';
         }
-        let openAiWs = providerMode === 'live'
-            ? createLiveSocket()
-            : createRealtimeSocket(activeRealtimeModel);
+        // REVIEW-R01: the provider socket is a paid side effect — it is
+        // created by connectProvider() only AFTER stream authentication
+        // succeeds. Deferred-auth streams (token carried in
+        // start.customParameters) stay null until the start frame verifies.
+        let openAiWs = null;
         const liveState = {
             started: false,
             startTimer: null,
@@ -980,15 +994,15 @@ fastify.register(async (fastify) => {
         const maxPendingAudioMessages = 300;
 
         const sendAudioToOpenAi = (payload) => {
-            if (openAiWs.readyState !== WebSocket.OPEN || !payload) return false;
+            if (openAiWs?.readyState !== WebSocket.OPEN || !payload) return false;
 
             if (providerMode === 'live') {
                 if (!liveState.started) return false;
-                openAiWs.send(JSON.stringify(liveAudioAppend(liveState.codec.encodeInput(payload))));
+                openAiWs?.send(JSON.stringify(liveAudioAppend(liveState.codec.encodeInput(payload))));
                 return true;
             }
 
-            openAiWs.send(JSON.stringify({
+            openAiWs?.send(JSON.stringify({
                 type: 'input_audio_buffer.append',
                 audio: payload
             }));
@@ -996,7 +1010,7 @@ fastify.register(async (fastify) => {
         };
 
         const flushPendingInboundAudio = () => {
-            while (openAiWs.readyState === WebSocket.OPEN && pendingInboundAudio.length > 0) {
+            while (openAiWs?.readyState === WebSocket.OPEN && pendingInboundAudio.length > 0) {
                 sendAudioToOpenAi(pendingInboundAudio.shift());
             }
         };
@@ -1338,7 +1352,7 @@ fastify.register(async (fastify) => {
                         recipientCount: recipient ? 1 : 0
                     }
                 });
-                if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close();
+                if (openAiWs?.readyState === WebSocket.OPEN) openAiWs?.close();
                 if (connection.readyState === WebSocket.OPEN) connection.close(1000, 'handoff_started');
             } catch (error) {
                 session.handoff = { started: false, starting: false, failed: true, reason: 'handoff_exception' };
@@ -1377,12 +1391,18 @@ fastify.register(async (fastify) => {
                     if (providerMode === 'live') {
                         const item = toLiveToolResultItem(output);
                         if (item) {
-                            openAiWs.send(JSON.stringify(liveItemCreate(item, `tool_${item.call_id || Date.now()}`)));
+                            openAiWs?.send(JSON.stringify(liveItemCreate(item, `tool_${item.call_id || Date.now()}`)));
                         }
                         continue;
                     }
-                    if (openAiWs.readyState === WebSocket.OPEN) {
-                        openAiWs.send(JSON.stringify(output));
+                    // REVIEW-R08: the Realtime API accepts tool output only
+                    // inside a conversation.item.create envelope — a bare
+                    // function_call_output item is rejected (invalid_value).
+                    if (openAiWs?.readyState === WebSocket.OPEN) {
+                        const envelope = output?.type === 'conversation.item.create'
+                            ? output
+                            : { type: 'conversation.item.create', item: output };
+                        openAiWs?.send(JSON.stringify(envelope));
                     }
                 } catch (error) {
                     auditLog('knowledge.lookup', {
@@ -1432,11 +1452,11 @@ fastify.register(async (fastify) => {
                 if (providerMode === 'live') {
                     const item = toLiveToolResultItem(output);
                     if (item) {
-                        openAiWs.send(JSON.stringify(liveItemCreate(item, `tool_${item.call_id || Date.now()}`)));
+                        openAiWs?.send(JSON.stringify(liveItemCreate(item, `tool_${item.call_id || Date.now()}`)));
                     }
                     continue;
                 }
-                openAiWs.send(JSON.stringify(output));
+                openAiWs?.send(JSON.stringify(output));
             }
             for (const callEndRequest of result.callEndRequests) {
                 requestCallEnd(callEndRequest);
@@ -1476,7 +1496,7 @@ fastify.register(async (fastify) => {
             clearToolWatchdog();
             toolWatchdogTimer = setTimeout(() => {
                 toolWatchdogTimer = null;
-                if (openAiWs.readyState !== WebSocket.OPEN || providerMode !== 'live') return;
+                if (openAiWs?.readyState !== WebSocket.OPEN || providerMode !== 'live') return;
                 if (stage === 1) {
                     auditLog('live.tool_response.stalled', {
                         actor: 'system',
@@ -1485,12 +1505,12 @@ fastify.register(async (fastify) => {
                         metadata: { watchdogMs: toolWatchdogMs }
                     });
                     try {
-                        openAiWs.send(JSON.stringify(liveInstructionsAppend(
+                        openAiWs?.send(JSON.stringify(liveInstructionsAppend(
                             'ツール実行結果への応答が遅延しています。追加の確認や推測での回答はせず、「確認して担当者より折り返します」とだけ丁寧に伝えてください。',
                             `wd_${Date.now()}`,
                             liveState.toolWatchdogDelegationId ?? null
                         )));
-                        openAiWs.send(JSON.stringify(liveResponseCreate(`rc_wd_${Date.now()}`)));
+                        openAiWs?.send(JSON.stringify(liveResponseCreate(`rc_wd_${Date.now()}`)));
                     } catch {
                         // socket raced closed — stage 2 will not run on a dead provider
                         return;
@@ -1509,14 +1529,14 @@ fastify.register(async (fastify) => {
         };
 
         const sendRealtimeResponseCreate = (reason) => {
-            if (openAiWs.readyState !== WebSocket.OPEN) return;
+            if (openAiWs?.readyState !== WebSocket.OPEN) return;
 
             if (providerMode === 'live') {
                 // Live responds continuously; response.create is only needed to
                 // continue delegated backend work after tool results, not per
                 // accepted user turn.
                 if (!liveState.started || String(reason).startsWith('accepted_transcript')) return;
-                openAiWs.send(JSON.stringify(liveResponseCreate(`rc_${Date.now()}`)));
+                openAiWs?.send(JSON.stringify(liveResponseCreate(`rc_${Date.now()}`)));
                 armToolWatchdog();
                 return;
             }
@@ -1530,7 +1550,7 @@ fastify.register(async (fastify) => {
             }
 
             responseCreatePending = true;
-            openAiWs.send(JSON.stringify({ type: 'response.create' }));
+            openAiWs?.send(JSON.stringify({ type: 'response.create' }));
             if (SHOULD_LOG_REALTIME_EVENTS) {
                 console.log(`Sent response.create (${reason})`);
             }
@@ -1551,8 +1571,8 @@ fastify.register(async (fastify) => {
                 return;
             }
 
-            if (responseInProgress && openAiWs.readyState === WebSocket.OPEN) {
-                openAiWs.send(JSON.stringify({ type: 'response.cancel' }));
+            if (responseInProgress && openAiWs?.readyState === WebSocket.OPEN) {
+                openAiWs?.send(JSON.stringify({ type: 'response.cancel' }));
             }
 
             pendingResponseAfterCurrent = false;
@@ -1567,9 +1587,9 @@ fastify.register(async (fastify) => {
         };
 
         const deleteConversationItem = (itemId, reason) => {
-            if (!itemId || openAiWs.readyState !== WebSocket.OPEN) return;
+            if (!itemId || openAiWs?.readyState !== WebSocket.OPEN) return;
 
-            openAiWs.send(JSON.stringify({
+            openAiWs?.send(JSON.stringify({
                 type: 'conversation.item.delete',
                 item_id: itemId
             }));
@@ -1596,7 +1616,7 @@ fastify.register(async (fastify) => {
             };
 
             console.log(`Sending Realtime session update for model ${activeRealtimeModel}`);
-            socket.send(JSON.stringify(sessionUpdate));
+            socket?.send(JSON.stringify(sessionUpdate));
         };
 
         const escalateRealtimeModel = (classification) => {
@@ -1738,7 +1758,7 @@ fastify.register(async (fastify) => {
                 classification.tier === 'complex_complaint'
                 && !liveState.complexMode
                 && !liveState.complexModeEventId
-                && openAiWs.readyState === WebSocket.OPEN
+                && openAiWs?.readyState === WebSocket.OPEN
             ) {
                 const eventId = `upd_complex_${Date.now()}`;
                 liveState.complexModeEventId = eventId;
@@ -1747,7 +1767,7 @@ fastify.register(async (fastify) => {
                     target: session.callSid || sessionId,
                     metadata: { category: classification.category }
                 });
-                openAiWs.send(JSON.stringify({
+                openAiWs?.send(JSON.stringify({
                     type: 'session.update',
                     event_id: eventId,
                     session: {
@@ -1872,7 +1892,7 @@ fastify.register(async (fastify) => {
             }
             providerMode = 'realtime';
             try {
-                if (openAiWs.readyState === WebSocket.OPEN) openAiWs.close(1000, 'live_fallback');
+                if (openAiWs?.readyState === WebSocket.OPEN) openAiWs?.close(1000, 'live_fallback');
             } catch {
                 // socket may already be closed
             }
@@ -1948,12 +1968,19 @@ fastify.register(async (fastify) => {
                             break;
 
                         case 'audio_delta':
+                            // REVIEW-R02: audible progress is the ONLY thing
+                            // that satisfies the tool watchdog — lifecycle
+                            // notifications never clear it.
+                            clearToolWatchdog();
                             liveState.outputAudioActive = true;
                             liveState.lastAudioDeltaAt = Date.now();
                             sendAudioToTwilio(liveState.codec.decodeOutput(classified.delta));
                             break;
 
                         case 'input_transcript_delta':
+                            // Caller speech is user-visible continuation —
+                            // the call is not in dead air.
+                            clearToolWatchdog();
                             liveState.userFrag += classified.delta || '';
                             scheduleLiveUserTurnFinalize();
                             // Barge-in: the caller is saying something while
@@ -1966,6 +1993,7 @@ fastify.register(async (fastify) => {
                             break;
 
                         case 'output_transcript_delta':
+                            clearToolWatchdog();
                             liveState.agentFrag += classified.delta || '';
                             scheduleLiveAgentTurnFinalize();
                             break;
@@ -2001,11 +2029,11 @@ fastify.register(async (fastify) => {
                             break;
 
                         case 'response_event': {
-                            const nestedLifecycle = classified.nested?.type || '';
-                            if (['response.in_progress', 'response.created', 'response.completed',
-                                'response.failed', 'response.incomplete'].includes(nestedLifecycle)) {
-                                clearToolWatchdog();
-                            }
+                            // REVIEW-R02: lifecycle notifications are NOT
+                            // progress. response.in_progress/created/completed
+                            // used to clear the watchdog, letting a stalled
+                            // provider sit silent forever. Only audio or
+                            // transcript deltas (or session close) clear it.
                             const completed = liveState.delegation.observeResponseEvent(
                                 classified.delegationId,
                                 classified.nested
@@ -2015,6 +2043,11 @@ fastify.register(async (fastify) => {
                             // can carry truncated calls.
                             if (completed?.status === 'response.completed' && completed.calls?.length) {
                                 liveState.toolWatchdogDelegationId = completed.delegationId;
+                                // Tool work (incl. the async knowledge lookup)
+                                // is now expected — audible progress must
+                                // follow within the deadline or the watchdog
+                                // stages fire.
+                                armToolWatchdog();
                                 void (async () => {
                                     const doneEvent = toRealtimeDoneEvent(completed.calls, completed.status);
                                     const knowledgeHandled = await handleKnowledgeToolCalls(doneEvent);
@@ -2334,11 +2367,30 @@ fastify.register(async (fastify) => {
             });
         };
 
-        if (providerMode === 'live') {
-            attachLiveSocket(openAiWs);
-        } else {
-            attachRealtimeSocket(openAiWs, { initial: true });
-        }
+        // REVIEW-R01: connect the paid provider session only once stream
+        // authentication has completed. Lifecycle-guarded so a stale caller
+        // (handoff/close raced ahead) can never spawn a provider session.
+        const connectProvider = () => {
+            if (openAiWs) return;
+            if (callLifecycle.phase === 'handoff'
+                || callLifecycle.phase === 'closing'
+                || callLifecycle.phase === 'closed'
+                || session.callEnd?.completed) {
+                return;
+            }
+            openAiWs = providerMode === 'live'
+                ? createLiveSocket()
+                : createRealtimeSocket(activeRealtimeModel);
+            if (providerMode === 'live') {
+                attachLiveSocket(openAiWs);
+            } else {
+                attachRealtimeSocket(openAiWs, { initial: true });
+            }
+        };
+
+        // Authenticated at upgrade (path token or auth bypass) — connect now.
+        // Deferred streams connect inside the `start` handler instead.
+        if (!streamAuthDeferred) connectProvider();
 
         // Twilioからのメッセージを処理
         const handleTwilioMessage = (message) => {
@@ -2385,6 +2437,10 @@ fastify.register(async (fastify) => {
                                 clearTimeout(authDeadline);
                                 authDeadline = null;
                             }
+                            // Authentication completed via the deferred
+                            // <Parameter> channel — the paid provider
+                            // session may now be created.
+                            connectProvider();
                         }
                         if (!data.start?.streamSid) {
                             console.warn('Twilio stream start message did not include streamSid');
@@ -2441,6 +2497,22 @@ fastify.register(async (fastify) => {
                             }
                         });
                         callLogSinks.recordStarted(session);
+                        // v2 projection at call start — correlation ids land
+                        // even if the call later drops without extraction.
+                        void projectProviderCall({
+                            callId: session.callSid || sessionId,
+                            streamSid: session.streamSid,
+                            transportState: 'connected',
+                            startedAt: session.startedAt instanceof Date
+                                ? session.startedAt.toISOString()
+                                : (session.startedAt || new Date().toISOString()),
+                            endedAt: null,
+                            durationSeconds: null,
+                            fromNumberMasked: maskPhone(session.from),
+                            toNumberMasked: maskPhone(session.to),
+                            callbackRequired: false,
+                            outcome: 'abandoned'
+                        });
                         flushPendingOutboundAudio();
                         break;
                     case 'mark':
@@ -2498,11 +2570,11 @@ fastify.register(async (fastify) => {
             // Bounded graceful close: send session.close, wait for
             // session.closed with a deadline, and record an incomplete
             // finalization when confirmation never arrives.
-            if (openAiWs.readyState === WebSocket.OPEN) {
+            if (openAiWs?.readyState === WebSocket.OPEN) {
                 if (providerMode === 'live' && liveState.started && !liveState.closeSent) {
                     liveState.closeSent = true;
                     try {
-                        openAiWs.send(JSON.stringify(liveSessionClose(`close_${sessionId}`)));
+                        openAiWs?.send(JSON.stringify(liveSessionClose(`close_${sessionId}`)));
                         const drainResult = await new Promise((resolve) => {
                             liveState.closedResolver = resolve;
                             liveState.drainTimer = setTimeout(
@@ -2523,7 +2595,7 @@ fastify.register(async (fastify) => {
                         session.liveCloseIncomplete = true;
                     }
                 }
-                openAiWs.close();
+                openAiWs?.close();
             }
             session.endedAt = new Date();
             session.status = 'completed';
@@ -2539,11 +2611,68 @@ fastify.register(async (fastify) => {
                 : await processTranscriptAndSend(session.transcript, session.callSid || sessionId);
             const record = buildCallLogRecord(session, extraction);
             await callLogSinks.recordCompleted(record);
-            await notificationOutbox.enqueue({
+            const notifyResult = await notificationOutbox.enqueue({
                 kind: 'call-summary',
                 callId: record.callSid,
                 subject: `【電話受付】${record.intent || '新しい通話受付'} ${record.callSid}`,
                 text: buildCallSummaryEmailText(record)
+            });
+
+            // REVIEW-R09: project the completed call into callLogsV2 and open
+            // an escalation case when human follow-up is required. The
+            // notification enqueue result marks 'notified' — acknowledgement
+            // stays a separate authenticated admin action.
+            const emergency = isEmergencyCall(session.turns);
+            const handoffAttempted = Boolean(
+                session.handoff?.started || session.handoff?.starting || session.handoff?.failed
+            );
+            await projectProviderCall({
+                callId: session.callSid || sessionId,
+                streamSid: session.streamSid,
+                transportState: (session.openAiError || session.liveCloseIncomplete) ? 'failed' : 'ended',
+                startedAt: session.startedAt instanceof Date
+                    ? session.startedAt.toISOString()
+                    : (session.startedAt || null),
+                endedAt: session.endedAt instanceof Date ? session.endedAt.toISOString() : null,
+                durationSeconds: record.durationSeconds ?? null,
+                fromNumberMasked: maskPhone(session.from),
+                toNumberMasked: maskPhone(session.to),
+                extraction: extraction ? {
+                    summary: extraction.summary ?? null,
+                    callerName: extraction.customerName ?? null,
+                    callbackNumber: extraction.customerPhoneNumber
+                        ?? session.callbackPhone?.normalizedPhoneNumber ?? null,
+                    callbackRequestedWindow: extraction.preferredDatetime ?? null,
+                    intent: extraction.intent ?? null,
+                    memo: null,
+                    model: extraction.model ?? undefined,
+                    extractedAt: new Date().toISOString()
+                } : (session.callbackPhone?.valid ? {
+                    callbackNumber: session.callbackPhone.normalizedPhoneNumber
+                } : null),
+                callbackRequired: record.callbackRequired === true,
+                outcome: session.handoff?.started && !session.handoff?.failed ? 'transferred'
+                    : (session.openAiError || session.liveCloseIncomplete) ? 'failed'
+                        : session.turns.length > 0 ? 'completed' : 'abandoned',
+                severity: {
+                    urgency: emergency ? 'critical' : handoffAttempted ? 'high' : 'unknown',
+                    importance: emergency ? 'critical' : handoffAttempted ? 'high' : 'normal',
+                    humanRequested: handoffAttempted,
+                    riskKinds: emergency ? ['life_safety_emergency'] : [],
+                    basis: 'provider_projection'
+                },
+                handoff: {
+                    requested: handoffAttempted,
+                    destination: session.handoff?.destination ?? null,
+                    outcome: session.handoff?.failed ? 'failed'
+                        : session.handoff?.started ? 'connected'
+                            : handoffAttempted ? 'timeout' : null,
+                    reason: session.handoff?.reason ?? null
+                },
+                knowledgeReleaseIds: (session.knowledgeLookups || [])
+                    .map((l) => l.releaseId).filter(Boolean),
+                notificationSent: notifyResult?.ok === true,
+                error: session.openAiError || null
             });
             auditLog('call.completed', {
                 actor: 'twilio',
