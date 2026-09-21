@@ -75,3 +75,32 @@
 - **RR03(本番実測)**: 上記未認証プローブ2回の実施前後で`callLogsV2`が2件のまま変化なし(新規業務レコード0)
 - Cloud Logging(新revision): 起動正常、プローブの接続/切断を記録、エラーなし
 - 未実施: 認証済みストリームの本番検証(無音watchdog・provider音声・v2終了投影)はTwilio Auth TokenのHMAC署名が必要なため、実PSTN通話またはトークン発行済み試験経路での確認待ち
+
+## 第3回検収(2026-09-21) 修復記録 — T01〜T04
+
+**第3回検収**: 追加境界テスト8件(B01〜B06, K03/K04)で前回修復の残存不備を検出。診断通話のみ許容、全シナリオ受入は保留
+**修復ブランチ**: `fix/reception-acceptance-remediation-20260921` → PR #101 (develop宛、merge commit `dd83ae4`)
+
+| # | 指摘 | 対応 | 検証 |
+|---|---|---|---|
+| T01 | 否定・話題変更で番号復唱の確認待ちが失効しない | 確認待ちを復唱turn単位のウィンドウ化。復唱を含まないagent発話・user否定で失効 | `additional-contracts.test.mjs` B01/B02緑 |
+| T02 | 空transcript・短いfillerでwatchdog永久解除 | watchdogを再監視型へ。pending中は可聴進捗で期限延長のみ、解除はcaller speech/close/終話のみ。stage1 nudge最大2回 | `additional-media.test.mjs` B05/B06緑(26秒無音→実終了) |
+| T03 | 遅延投影で要約消失・部分編集で初期化停止 | `effective`を項目単位マージ。extraction無し再投影は既存値を保持、人の部分編集はその項目のみ保護 | `additional-contracts.test.mjs` B03/B04緑 |
+| T04 | 未知商品検出が助詞・複合語に弱い | segment内のカタカナ/英字runを抽出。非既知runはunknown、既知商品(キーprefix一致)はその商品の項目に限定 | `knowledge-entity.test.mjs` K01〜K04緑 |
+
+## 第3回検収修復の検証エビデンス
+
+- `npm test` — `# tests 348 / # pass 348 / # fail 0`(取り込んだ検収probe3ファイル含む)
+- `review-artifacts/additional-contracts.test.mjs` + `knowledge-entity.test.mjs` — 8件全緑(修復前6 FAIL)
+- `review-artifacts/additional-media.test.mjs` — B05/B06含む全サブテスト緑(修復前2 FAIL)
+- CI(Node checks)run `35573067081` — success
+
+## 第3回検収修復の本番デプロイ検証(2026-09-21 16:3x JST)
+
+- PR #101をdevelopへマージ(`dd83ae4`)、Actions run `35573305568` Deploy Cloud Run成功(2分24秒)
+- 新revision `speech-assistant-realtime-00037-jlp` が100%トラフィック
+- `/health`=`{"status":"ok"}`、`/`=正常応答
+- トークンなしstart→`closed:4403:forbidden`(0.9秒)、未認証アイドル→`closed:4403:stream_auth_timeout`(10.1秒)
+- 未認証プローブ2回の前後で`callLogsV2`は既存2件のまま(新規業務レコード0)
+- Cloud Logging(新revision): 起動正常、プローブの接続/切断を記録、エラーなし
+- 未実施: 認証済みストリームの本番検証(無音watchdogの実発話・provider音声・v2終了投影)はTwilio Auth TokenのHMAC署名が必要。実PSTN通話での確認待ち(番号確認・無音回復・商品料金の実音声での再現を含む)
