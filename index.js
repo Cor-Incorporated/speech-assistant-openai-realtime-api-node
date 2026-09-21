@@ -1528,8 +1528,8 @@ fastify.register(async (fastify) => {
             '失礼いたしました', '恐れ入ります', '申し訳ございません', '申し訳ありません',
             'ただいま', '只今', '今しばらく', 'しばらく', '少々'
         ];
-        const TOOL_WATCHDOG_WAITING_PATTERN = new RegExp(
-            [...TOOL_WATCHDOG_WAITING_PHRASES].sort((a, b) => b.length - a.length).join('|'), 'g');
+        const TOOL_WATCHDOG_WAITING_PHRASES_LONGEST_FIRST =
+            [...TOOL_WATCHDOG_WAITING_PHRASES].sort((a, b) => b.length - a.length);
         const TOOL_WATCHDOG_MIN_SUBSTANTIVE_CHARS = 4;
         const TOOL_WATCHDOG_MIN_AUDIO_PACKETS = 8;
         const TOOL_WATCHDOG_MIN_VOICE_ONLY_PACKETS = 40;
@@ -1548,23 +1548,33 @@ fastify.register(async (fastify) => {
             clearToolWatchdog();
         };
         const substantiveTranscriptChars = (text) => {
-            const stripped = String(text)
-                .replace(TOOL_WATCHDOG_WAITING_PATTERN, ' ')
-                .replace(/[\s、。！？!?,.…・]/g, '');
-            // ACCEPT-W01: deltas arrive as fragments — a trailing run that
-            // is still a proper PREFIX of a waiting phrase (「確認して」→
-            // 「確認しております」, 「お」→「お待ちください」) is not yet
-            // answer content. Hold it back so a half-delivered filler can
-            // never irreversibly disarm the call; the same final text then
-            // classifies identically regardless of delta granularity.
-            for (let k = stripped.length; k > 0; k--) {
-                const tail = stripped.slice(-k);
+            let rest = String(text).replace(/[\s、。！？!?,.…・]/g, '');
+            let substantive = 0;
+            // ACCEPT-W01/X01: deltas arrive as fragments, so scan
+            // left-to-right keeping BOTH readings of an ambiguous
+            // boundary alive. A remainder that is still a proper PREFIX
+            // of a waiting phrase (「確認して」→「確認しております」,
+            // 「少々お待ちくださいま」→「…ませ」) is checked BEFORE any
+            // completed phrase is stripped — otherwise the shorter
+            // phrase would be consumed first and its unfinished
+            // continuation (「ま」) would masquerade as answer content.
+            // Classification of the accumulated text is then identical
+            // regardless of delta granularity or audio ordering.
+            while (rest.length > 0) {
                 if (TOOL_WATCHDOG_WAITING_PHRASES.some(
-                    (phrase) => phrase.length > tail.length && phrase.startsWith(tail))) {
-                    return stripped.length - k;
+                    (phrase) => phrase.length > rest.length && phrase.startsWith(rest))) {
+                    break;
                 }
+                const completed = TOOL_WATCHDOG_WAITING_PHRASES_LONGEST_FIRST
+                    .find((phrase) => rest.startsWith(phrase));
+                if (completed) {
+                    rest = rest.slice(completed.length);
+                    continue;
+                }
+                substantive += 1;
+                rest = rest.slice(1);
             }
-            return stripped.length;
+            return substantive;
         };
         // The pending continuation is satisfied only when the response
         // completed AND the caller actually heard answer content — a bare
