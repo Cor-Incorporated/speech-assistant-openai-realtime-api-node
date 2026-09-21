@@ -108,20 +108,31 @@ export class KnowledgeReader {
             return true;
         });
 
-        const matched = candidates
-            .map((item) => ({ item, score: scoreItem(item, normalized) }))
-            .filter((entry) => entry.score > 0)
-            .sort((a, b) => b.score - a.score || a.item.knowledgeId.localeCompare(b.item.knowledgeId))
-            .slice(0, this.maxItems);
-
-        // RECHECK-RR06: an unmatched entity term (a katakana/roman product
-        // name the caller named but we know nothing about) must not be
-        // answered from a generic sibling item — say unknown so the voice
-        // layer asks for clarification instead of quoting the wrong price.
-        const unknownEntity = findUnknownEntityTerm(normalized, candidates);
-        if (unknownEntity) {
+        // RECHECK-RR06 / ACCEPT-T04: an unmatched entity term (a
+        // katakana/roman product name the caller named but we know nothing
+        // about) must not be answered from a generic sibling item — say
+        // unknown so the voice layer asks for clarification instead of
+        // quoting the wrong price.
+        const entities = analyzeEntityTerms(normalized, candidates);
+        if (entities.unknownTerm) {
             return { status: 'unknown', releaseId: cache.releaseId, stale, items: [] };
         }
+
+        let matched = candidates
+            .map((item) => ({ item, score: scoreItem(item, normalized) }))
+            .filter((entry) => entry.score > 0)
+            .sort((a, b) => b.score - a.score || a.item.knowledgeId.localeCompare(b.item.knowledgeId));
+
+        // A named product that IS known restricts the answer to that
+        // product's items — generic pricing must not leak into a
+        // product-specific question (「グリフト月額料金」).
+        if (entities.constraints.length > 0) {
+            matched = matched.filter(({ item }) =>
+                entities.constraints.every((variants) =>
+                    variants.some((v) => itemHaystack(item).includes(v))));
+        }
+
+        matched = matched.slice(0, this.maxItems);
 
         if (matched.length === 0) {
             return { status: 'unknown', releaseId: cache.releaseId, stale, items: [] };
@@ -300,28 +311,60 @@ function cjkBigrams(text: string): Set<string> {
 // likely a product/service name the caller misheard or misremembered —
 // answering from a generic item would attribute another service's facts to
 // it (RECHECK-RR06: "ブリストの料金" must not return generic pricing).
-const JA_ENTITY_PATTERN = /^[ァ-ヶー]{2,}$|^[a-z][a-z0-9.-]*$/i;
+//
+// ACCEPT-T04: entity runs are extracted from INSIDE compound segments too —
+// 「ブリスト料金」「商品アオゾラ」 still name an unknown product even though
+// the whole segment is not entity-shaped (K03/K04). Pure digits are not
+// entity names (years, amounts, phone fragments stay retrievable).
+const ENTITY_RUN_PATTERN = /[ァ-ヶー]{2,}|[a-z][a-z0-9.-]*/g;
 
-const segmentInSynonymGroup = (segment: string): boolean =>
-    SYNONYM_GROUPS.some((group) => group.some((member) =>
-        segment === member
-        || (member.length >= 2 && segment.includes(member))
-        || (segment.length >= 2 && member.includes(segment))));
+const itemHaystack = (item: PublishedKnowledgeItem): string =>
+    nfkc(`${item.key} ${item.title} ${item.category} ${item.keywords.join(' ')} ${item.answerJa ?? ''} ${JSON.stringify(item.value)}`);
 
-function findUnknownEntityTerm(
+const synonymGroupFor = (term: string): readonly string[] | null =>
+    SYNONYM_GROUPS.find((group) => group.some((member) =>
+        term === member
+        || (member.length >= 2 && term.includes(member))
+        || (term.length >= 2 && member.includes(term)))) ?? null;
+
+interface EntityAnalysis {
+    /** A product-like token no published item knows — answer 'unknown'. */
+    unknownTerm: string | null;
+    /** Product entities identified in the query (e.g. Grift) — matched
+     * items must be about THIS entity, not a generic sibling
+     * (「グリフト月額料金」 returns Grift items only). */
+    constraints: string[][];
+}
+
+/** Detect unknown product names and pin down known ones. The key's first
+ * segment (grift.*, service.*, ...) doubles as the entity namespace — a
+ * query naming a known product constrains answers to that product. */
+function analyzeEntityTerms(
     normalizedQuery: string,
     candidates: PublishedKnowledgeItem[]
-): string | null {
+): EntityAnalysis {
+    const constraints: string[][] = [];
+    const keyPrefixes = new Set(candidates.map((item) => nfkc(item.key).split('.')[0]));
     for (const segment of querySegments(normalizedQuery)) {
-        if (!JA_ENTITY_PATTERN.test(segment) || segmentInSynonymGroup(segment)) {
-            continue;
+        for (const match of segment.matchAll(ENTITY_RUN_PATTERN)) {
+            const run = match[0];
+            const group = synonymGroupFor(run);
+            const variants = group ? [...group] : [run];
+            const appearsInItems = candidates.some((item) =>
+                variants.some((v) => itemHaystack(item).includes(v)));
+            if (!appearsInItems) {
+                // A run that is itself a generic synonym member (サービス,
+                // プラン) is ordinary vocabulary, not a product name —
+                // only non-member runs gate on item coverage.
+                if (group) continue;
+                return { unknownTerm: run, constraints };
+            }
+            if (variants.some((v) => keyPrefixes.has(v))) {
+                constraints.push(variants);
+            }
         }
-        const hit = candidates.some((item) =>
-            nfkc(`${item.key} ${item.title} ${item.category} ${item.keywords.join(' ')} ${item.answerJa ?? ''} ${JSON.stringify(item.value)}`)
-                .includes(segment));
-        if (!hit) return segment;
     }
-    return null;
+    return { unknownTerm: null, constraints };
 }
 
 /** Deterministic small-scale scoring over the whitelisted snapshot —
