@@ -1514,7 +1514,10 @@ fastify.register(async (fastify) => {
         // "寺田康佑です". Waiting/acknowledgement phrases are stripped
         // from the observed transcript and only the remainder counts as
         // answer content (D01/D02 vs the observed representative answer).
-        const TOOL_WATCHDOG_WAITING_PATTERN = new RegExp([
+        // ACCEPT-V01/W01: phrases are matched longest-first so a completed
+        // waiting phrase is stripped atomically, and the same list doubles
+        // as the prefix table for half-delivered fragments below.
+        const TOOL_WATCHDOG_WAITING_PHRASES = [
             '少々お待ちくださいませ', '少々お待ちください', '少々お待ち下さい',
             '少しお待ちください', '今しばらくお待ちください', 'しばらくお待ちください',
             'お待ちくださいませ', 'お待ちください', 'お待ち下さい',
@@ -1524,7 +1527,9 @@ fastify.register(async (fastify) => {
             '承知いたしました', 'かしこまりました', '承知しました',
             '失礼いたしました', '恐れ入ります', '申し訳ございません', '申し訳ありません',
             'ただいま', '只今', '今しばらく', 'しばらく', '少々'
-        ].join('|'), 'g');
+        ];
+        const TOOL_WATCHDOG_WAITING_PATTERN = new RegExp(
+            [...TOOL_WATCHDOG_WAITING_PHRASES].sort((a, b) => b.length - a.length).join('|'), 'g');
         const TOOL_WATCHDOG_MIN_SUBSTANTIVE_CHARS = 4;
         const TOOL_WATCHDOG_MIN_AUDIO_PACKETS = 8;
         const TOOL_WATCHDOG_MIN_VOICE_ONLY_PACKETS = 40;
@@ -1542,10 +1547,25 @@ fastify.register(async (fastify) => {
             toolWatchdogOutput = { packets: 0, transcript: '', transcriptSeen: false };
             clearToolWatchdog();
         };
-        const substantiveTranscriptChars = (text) => String(text)
-            .replace(TOOL_WATCHDOG_WAITING_PATTERN, ' ')
-            .replace(/[\s、。！？!?,.…・]/g, '')
-            .length;
+        const substantiveTranscriptChars = (text) => {
+            const stripped = String(text)
+                .replace(TOOL_WATCHDOG_WAITING_PATTERN, ' ')
+                .replace(/[\s、。！？!?,.…・]/g, '');
+            // ACCEPT-W01: deltas arrive as fragments — a trailing run that
+            // is still a proper PREFIX of a waiting phrase (「確認して」→
+            // 「確認しております」, 「お」→「お待ちください」) is not yet
+            // answer content. Hold it back so a half-delivered filler can
+            // never irreversibly disarm the call; the same final text then
+            // classifies identically regardless of delta granularity.
+            for (let k = stripped.length; k > 0; k--) {
+                const tail = stripped.slice(-k);
+                if (TOOL_WATCHDOG_WAITING_PHRASES.some(
+                    (phrase) => phrase.length > tail.length && phrase.startsWith(tail))) {
+                    return stripped.length - k;
+                }
+            }
+            return stripped.length;
+        };
         // The pending continuation is satisfied only when the response
         // completed AND the caller actually heard answer content — a bare
         // lifecycle completion, silent frames, or a waiting phrase alone
