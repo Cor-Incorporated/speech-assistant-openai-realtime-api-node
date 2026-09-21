@@ -1498,12 +1498,21 @@ fastify.register(async (fastify) => {
         let toolWatchdogTimer = null;
         // ACCEPT-T02: while a tool continuation is pending, audible progress
         // only RESETS the silence window — it never disarms it (B05/B06).
-        // The pending state ends on caller speech, session close, or call
-        // end. Stage-1 nudges are capped so a provider that keeps emitting
-        // filler without real recovery still reaches the call end.
+        // ACCEPT-U02: pending ends once the delegated response completed AND
+        // a substantive answer was actually output — a bare lifecycle
+        // completion or one filler burst is not a delivered answer, while a
+        // finished real answer must return the call to normal waiting.
+        // Caller speech, session close, and call end always disarm.
         let toolWatchdogPending = false;
         let toolWatchdogNudges = 0;
+        let toolWatchdogResponseDone = false;
+        let toolWatchdogOutput = { packets: 0, chars: 0 };
         const TOOL_WATCHDOG_MAX_NUDGES = 2;
+        // One filler packet / a short "少々お待ちください" is not the
+        // answer — a real reply produces many audio frames or a longer
+        // transcript (B06 vs the observed "代表取締役は寺田康佑です。").
+        const TOOL_WATCHDOG_MIN_AUDIO_PACKETS = 8;
+        const TOOL_WATCHDOG_MIN_TRANSCRIPT_CHARS = 12;
         const toolWatchdogMs = Math.min(Math.max(Number(LIVE_TOOL_WATCHDOG_MS) || 0, 0), 60000);
         const clearToolWatchdog = () => {
             if (toolWatchdogTimer) {
@@ -1514,8 +1523,18 @@ fastify.register(async (fastify) => {
         const disarmToolWatchdog = () => {
             toolWatchdogPending = false;
             toolWatchdogNudges = 0;
+            toolWatchdogResponseDone = false;
+            toolWatchdogOutput = { packets: 0, chars: 0 };
             clearToolWatchdog();
         };
+        // The pending continuation is satisfied only when the response
+        // completed AND produced substantive audible output — both facts
+        // are required so an empty completion or a filler alone can never
+        // masquerade as a delivered answer.
+        const toolWatchdogAnswered = () =>
+            toolWatchdogResponseDone
+            && (toolWatchdogOutput.packets >= TOOL_WATCHDOG_MIN_AUDIO_PACKETS
+                || toolWatchdogOutput.chars >= TOOL_WATCHDOG_MIN_TRANSCRIPT_CHARS);
         // RECHECK-RR02/N09: a frame of pure silence is not audible progress.
         // μ-law silence is 0xff/0x7f and PCM16 silence is 0x00 — a payload
         // made only of these bytes keeps the socket busy but says nothing.
@@ -1525,15 +1544,25 @@ fastify.register(async (fastify) => {
             const bytes = Buffer.from(deltaBase64, 'base64');
             return bytes.length === 0 || bytes.every((b) => SILENT_AUDIO_BYTES.has(b));
         };
-        const noteToolAudibleProgress = () => {
-            // Real output arrived — push the deadline out but keep the
-            // watchdog armed: a single filler burst must not satisfy the
-            // pending tool continuation.
-            if (toolWatchdogPending) armToolWatchdog(1);
+        const noteToolAudibleProgress = (kind, amount) => {
+            if (!toolWatchdogPending) return;
+            if (kind === 'audio') toolWatchdogOutput.packets += amount;
+            if (kind === 'transcript') toolWatchdogOutput.chars += amount;
+            // Real output arrived — push the deadline out, and release the
+            // watchdog entirely once a completed answer was actually heard.
+            if (toolWatchdogAnswered()) {
+                disarmToolWatchdog();
+                return;
+            }
+            armToolWatchdog(1);
         };
         const armToolWatchdog = (stage = 1) => {
             if (providerMode !== 'live' || toolWatchdogMs < 2000) return;
-            if (!toolWatchdogPending) toolWatchdogNudges = 0;
+            if (!toolWatchdogPending) {
+                toolWatchdogNudges = 0;
+                toolWatchdogResponseDone = false;
+                toolWatchdogOutput = { packets: 0, chars: 0 };
+            }
             toolWatchdogPending = true;
             clearToolWatchdog();
             toolWatchdogTimer = setTimeout(() => {
@@ -1549,10 +1578,14 @@ fastify.register(async (fastify) => {
                         metadata: { watchdogMs: toolWatchdogMs }
                     });
                     try {
+                        // ACCEPT-U03: a Responses delegation id is NOT a
+                        // valid client delegation — the real API rejected
+                        // the nudge with "Unknown client delegation". A
+                        // session-scoped instruction must pass null.
                         openAiWs?.send(JSON.stringify(liveInstructionsAppend(
                             'ツール実行結果への応答が遅延しています。追加の確認や推測での回答はせず、「確認して担当者より折り返します」とだけ丁寧に伝えてください。',
                             `wd_${Date.now()}`,
-                            liveState.toolWatchdogDelegationId ?? null
+                            null
                         )));
                         openAiWs?.send(JSON.stringify(liveResponseCreate(`rc_wd_${Date.now()}`)));
                     } catch {
@@ -2030,7 +2063,7 @@ fastify.register(async (fastify) => {
                             // single filler burst does not satisfy the
                             // pending tool continuation.
                             if (!isSilentAudioDelta(classified.delta)) {
-                                noteToolAudibleProgress();
+                                noteToolAudibleProgress('audio', 1);
                                 liveState.outputAudioActive = true;
                                 liveState.lastAudioDeltaAt = Date.now();
                             }
@@ -2058,7 +2091,9 @@ fastify.register(async (fastify) => {
                         case 'output_transcript_delta':
                             // An empty delta is not progress — only real
                             // transcript text resets the window.
-                            if (classified.delta) noteToolAudibleProgress();
+                            if (classified.delta) {
+                                noteToolAudibleProgress('transcript', String(classified.delta).length);
+                            }
                             liveState.agentFrag += classified.delta || '';
                             scheduleLiveAgentTurnFinalize();
                             break;
@@ -2106,8 +2141,15 @@ fastify.register(async (fastify) => {
                             // Side-effecting tool calls execute only for a
                             // completed response — failed/incomplete snapshots
                             // can carry truncated calls.
+                            // ACCEPT-U02: a completed delegated response
+                            // alone does not prove the answer reached the
+                            // caller — the watchdog stays armed until real
+                            // output was also observed (and vice versa).
+                            if (completed?.status === 'response.completed') {
+                                toolWatchdogResponseDone = true;
+                                if (toolWatchdogAnswered()) disarmToolWatchdog();
+                            }
                             if (completed?.status === 'response.completed' && completed.calls?.length) {
-                                liveState.toolWatchdogDelegationId = completed.delegationId;
                                 // Tool work (incl. the async knowledge lookup)
                                 // is now expected — audible progress must
                                 // follow within the deadline or the watchdog
