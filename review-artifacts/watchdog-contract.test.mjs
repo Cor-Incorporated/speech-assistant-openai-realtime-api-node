@@ -162,7 +162,13 @@ describe('media-stream integration (real handler, mocked provider)', () => {
         provider = new ProviderStub();
         await provider.start();
 
-        serverPort = 19500 + Math.floor(Math.random() * 400);
+        // Bind :0 first to claim a definitely-free port — the sibling
+        // media suites draw from a shared random band and collide under
+        // parallel runs (EADDRINUSE flake observed in npm test).
+        const probe = (await import('node:net')).createServer();
+        await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve));
+        serverPort = probe.address().port;
+        await new Promise((resolve) => probe.close(resolve));
         server = spawn(process.execPath, [INDEX_PATH], {
             env: {
                 ...process.env,

@@ -16,6 +16,7 @@ export type LookupStatus = 'found' | 'unknown' | 'expired' | 'unavailable';
 export interface LookupResultItem {
     knowledgeId: string;
     key: string;
+    title: string;
     revision: number;
     answer: string | null;
     value: Record<string, unknown>;
@@ -145,6 +146,11 @@ export class KnowledgeReader {
             items: matched.map(({ item }) => ({
                 knowledgeId: item.knowledgeId,
                 key: item.key,
+                // ACCEPT-V02: the answer text alone does not always name
+                // the asked entity (「掲載目安はTeam Betaが月額5万円から」
+                // never says Grift) — the title carries the product name
+                // the model needs to bind the items to the question.
+                title: item.title,
                 revision: item.revision,
                 answer: item.answerJa ? item.answerJa.slice(0, this.maxAnswerChars) : null,
                 value: item.value,
