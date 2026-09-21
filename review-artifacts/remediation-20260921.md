@@ -132,3 +132,31 @@
 - 未認証プローブ2回の前後で`callLogsV2`は既存2件のまま(新規業務レコード0)
 - Cloud Logging(新revision): 起動正常、プローブの接続/切断のみ記録、エラーなし
 - 未実施: U02の「正常回答後の無言で誤回復しない」は実Live APIでしか完全検証できない。実PSTN通話または認証済みストリーム試験での再確認待ち(電話受付時間13:00〜17:00の知識反映はユーザー確定値として開始阻害に含めず、未反映のまま)
+
+## 第5回検収(2026-09-21) 修復記録 — V01〜V02
+
+**第5回検収**: U01/U03改善とU02の実Live解消を確認する一方、U02修復の完了判定が待機案内でwatchdogを解除する退行(V01)と、正しい知識取得後の「商品不明」回答(V02)を検出。判定「人間受入テストへの移行は保留」
+**修復ブランチ**: `fix/reception-round5-remediation-20260921` → PR #105 (develop宛、merge commit `8804169`)
+
+| # | 指摘 | 対応 | 検証 |
+|---|---|---|---|
+| V01 | 「少々お待ちください」+音声8パケット、または「ただいま確認しております。少々お待ちください。」だけでwatchdogが解除され、tool応答未回答のまま監視停止 | 完了判定を出力サイズから内容ベースへ。transcriptから待機・承認句を除去した実質文字数で判定(実質4文字以上、または実質1文字以上+音声8パケット)。transcript観測後は音声バースト単独では解除しない。transcript未観測時のみ音声40パケットで回答済みとする | `watchdog-boundary.test.mjs` D01/D02緑(修復前2 FAIL)。B05/B06の無音終了・U02の正常回答後待機は維持 |
+| V02 | 正しい知識(status:found、3料金)を取得してもbackendが「商品不明」と回答(実Live、2回中1回) | tool出力の各項目に`key`/`title`を追加。answerが商品名を含まない公開項目(「掲載目安はTeam Betaが月額5万円から」)をtitle/keyの対象名でエンティティ結合。found指示文も強化。発信者queryのエコーは秘匿語句の再流出になり得るため出力へ含めない | `test/knowledge-tool-runtime.test.js` 5/5緑(draft/internal非漏洩を維持)。実Liveでの再現率は未確定のため再検証待ち |
+| - | メディア統合テスト群のポート乱択(19500+400)が並列実行でEADDRINUSE衝突 | 4ファイル全て空きポート動的取得へ変更 | npm testでcancelled 0を確認 |
+
+## 第5回検収修復の検証エビデンス
+
+- `npm test` — `# tests 393 / # pass 393 / # fail 0 / # cancelled 0`(新規probeファイル含む)
+- `review-artifacts/watchdog-boundary.test.mjs` — D01/D02緑(修復前は同入力で26秒後もWS OPEN・watchdog指示0)
+- `review-artifacts/watchdog-contract.test.mjs` — C05 delegation_id=null、B05/B06/N08/N09停止検知を維持
+- CI(Node checks/h5-admission/gitleaks)— PR #105全緑
+
+## 第5回検収修復の本番デプロイ検証(2026-09-21 18:5x JST)
+
+- PR #105をdevelopへマージ(`8804169`)、Actions run `35589468286` Deploy Cloud Run成功(2分35秒)
+- 新revision `speech-assistant-realtime-00041-6wz` が100%トラフィック
+- `/health`=`{"status":"ok"}`、`/`=200
+- トークンなしstart→`closed:4403:forbidden`、未認証アイドル→`closed:4403:stream_auth_timeout`(10.1秒)
+- 未認証プローブ2回の前後で`callLogsV2`は既存2件のまま(新規業務レコード0)
+- Cloud Logging(新revision): ERROR以上のログなし
+- 未実施: V01の「正常回答後の無言で誤回復しない」+「filler後の障害回復が残る」の同時成立はwire契約とmockで検証済みだが、実Live APIでの再確認は実PSTN通話または認証済みストリーム試験待ち。V02の実Live再現率(2回中1回)は小標本であり、title/key追加後の実Live再試験で改善を確認する必要がある
