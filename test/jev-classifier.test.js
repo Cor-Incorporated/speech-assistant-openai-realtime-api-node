@@ -125,3 +125,42 @@ test('empty context is insufficient_context without a transport call', async () 
     assert.equal(decision.reason, 'insufficient_context');
     assert.equal(called, false);
 });
+
+// --- REVIEW-R06: full-width digits/punctuation must not bypass masking ---
+
+test('maskSensitiveText masks full-width Japanese phone numbers', () => {
+    const masked = maskSensitiveText('連絡先は０９０－００００－００００です');
+    assert.ok(!masked.includes('０９０'), masked);
+    assert.ok(!masked.includes('090'), masked);
+    assert.ok(masked.includes('<CALLBACK_PHONE>'), masked);
+});
+
+test('maskSensitiveText masks a +81 number with a separator after the country code', () => {
+    const masked = maskSensitiveText('連絡先は +81-90-0000-0000 です');
+    assert.ok(!masked.includes('90-0000'), masked);
+    assert.ok(masked.includes('<CALLBACK_PHONE>'), masked);
+});
+
+test('maskSensitiveText masks full-width plus and mixed separators', () => {
+    const masked = maskSensitiveText('電話は＋８１　９０ー１２３４ー５６７８へ');
+    assert.ok(!masked.includes('９０'), masked);
+    assert.ok(!masked.includes('90'), masked);
+    assert.ok(masked.includes('<CALLBACK_PHONE>'), masked);
+});
+
+test('full-width digits never reach the transport payload', async () => {
+    let captured = '';
+    const spy = {
+        classify: (request) => {
+            captured = request.text;
+            return Promise.resolve({ intent: 'billing_complaint' });
+        }
+    };
+
+    await makeClassifier(spy).classify([
+        { role: 'user', text: '折り返し先は０９０－１２３４－５６７８です' }
+    ], 0);
+
+    assert.ok(!/[0-9０-９]{4}/.test(captured), captured);
+    assert.ok(captured.includes('<CALLBACK_PHONE>'), captured);
+});

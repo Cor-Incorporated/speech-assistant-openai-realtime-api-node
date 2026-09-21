@@ -134,7 +134,8 @@ test('Realtime tool flow allows finish_reception after callback phone validation
     const state = {
         callbackPhone: {
             valid: true,
-            normalizedPhoneNumber: '09012345678'
+            normalizedPhoneNumber: '09012345678',
+            confirmed: true
         }
     };
     const result = handleRealtimeToolCalls({
@@ -363,7 +364,8 @@ test('Realtime tool flow requires callback_required for non-sales non-urgent bus
         state: {
             callbackPhone: {
                 valid: true,
-                normalizedPhoneNumber: '09012345678'
+                normalizedPhoneNumber: '09012345678',
+                confirmed: true
             }
         },
         callEndConfig: buildCallEndConfig(),
@@ -389,7 +391,8 @@ test('Realtime tool flow allows sales call without callback when contact is vali
         state: {
             callbackPhone: {
                 valid: true,
-                normalizedPhoneNumber: '09012345678'
+                normalizedPhoneNumber: '09012345678',
+                confirmed: true
             }
         },
         callEndConfig: buildCallEndConfig(),
@@ -423,4 +426,135 @@ test('Realtime tool flow blocks non-urgent general handoff', () => {
     assert.equal(result.handled, true);
     assert.deepEqual(result.handoffRequests, []);
     assert.equal(output.reason, 'non_urgent_general_handoff');
+});
+
+// --- REVIEW-R05: caller confirmation is a separate fact from syntax validity
+
+const finishEvent = (callId, callbackRequired = true) => toolEvent(
+    'finish_reception', callId, { reason: 'done', callback_required: callbackRequired }
+);
+
+const validateEvent = (callId, number = '09012345678') => toolEvent(
+    'validate_callback_phone', callId, { heard_phone_number: number }
+);
+
+const combinedEvent = (...calls) => ({
+    response: {
+        status: 'completed',
+        output: calls.map(([name, callId, args]) => ({
+            type: 'function_call',
+            name,
+            call_id: callId,
+            arguments: JSON.stringify(args)
+        }))
+    }
+});
+
+test('same-response validate+finish is denied — the caller has not heard the readback', () => {
+    const state = { turns: [{ role: 'user', text: '折り返しをお願いします', at: '2026-09-21T00:00:00.000Z' }] };
+    const result = handleRealtimeToolCalls({
+        event: combinedEvent(
+            ['validate_callback_phone', 'p', { heard_phone_number: '09012345678' }],
+            ['finish_reception', 'f', { reason: 'done', callback_required: true }]
+        ),
+        state,
+        callEndConfig: buildCallEndConfig(),
+        handoffConfig: { enabled: false, numbers: [] }
+    });
+    assert.equal(result.callEndRequests.length, 0);
+    const finishOut = JSON.parse(
+        result.outputs.find((o) => o.item.call_id === 'f').item.output
+    );
+    assert.equal(finishOut.ok, false);
+    assert.equal(finishOut.reason, 'callback_phone_not_confirmed');
+    assert.equal(state.callbackPhone.confirmed, false);
+});
+
+test('a valid-but-unconfirmed number still blocks finish', () => {
+    const result = handleRealtimeToolCalls({
+        event: finishEvent('f2'),
+        state: { callbackPhone: { valid: true, normalizedPhoneNumber: '09012345678', confirmed: false } },
+        callEndConfig: buildCallEndConfig(),
+        handoffConfig: { enabled: false, numbers: [] }
+    });
+    const output = JSON.parse(result.outputs[0].item.output);
+    assert.equal(output.ok, false);
+    assert.equal(output.reason, 'callback_phone_not_confirmed');
+    assert.equal(result.callEndRequests.length, 0);
+});
+
+test('agent readback + caller affirmation confirms the number, then finish passes', () => {
+    const state = { turns: [] };
+    const validated = handleRealtimeToolCalls({
+        event: validateEvent('p3'),
+        state,
+        callEndConfig: buildCallEndConfig(),
+        handoffConfig: { enabled: false, numbers: [] }
+    });
+    assert.equal(state.callbackPhone.valid, true);
+    assert.equal(state.callbackPhone.confirmed, false);
+
+    // The assistant reads the confirmationPrompt back; the caller affirms.
+    const t = Date.now();
+    state.turns.push(
+        { role: 'agent', text: '09012345678でよろしいですか。', at: new Date(t + 1000).toISOString() },
+        { role: 'user', text: 'はい、合っています。', at: new Date(t + 2000).toISOString() }
+    );
+
+    const finished = handleRealtimeToolCalls({
+        event: finishEvent('f3'),
+        state,
+        callEndConfig: buildCallEndConfig(),
+        handoffConfig: { enabled: false, numbers: [] }
+    });
+    assert.equal(finished.callEndRequests.length, 1);
+    assert.equal(state.callbackPhone.confirmed, true);
+});
+
+test('a caller negation after the readback keeps the number unconfirmed', () => {
+    const t = Date.now();
+    const state = {
+        callbackPhone: {
+            valid: true,
+            normalizedPhoneNumber: '09012345678',
+            confirmed: false,
+            validatedAt: new Date(t).toISOString()
+        },
+        turns: [
+            { role: 'agent', text: '09012345678でよろしいですか。', at: new Date(t + 1000).toISOString() },
+            { role: 'user', text: 'いえ、違います。', at: new Date(t + 2000).toISOString() }
+        ]
+    };
+    const result = handleRealtimeToolCalls({
+        event: finishEvent('f4'),
+        state,
+        callEndConfig: buildCallEndConfig(),
+        handoffConfig: { enabled: false, numbers: [] }
+    });
+    assert.equal(result.callEndRequests.length, 0);
+    assert.equal(state.callbackPhone.confirmed, false);
+});
+
+test('an affirmation with no agent readback does not confirm', () => {
+    const t = Date.now();
+    const state = {
+        callbackPhone: {
+            valid: true,
+            normalizedPhoneNumber: '09012345678',
+            confirmed: false,
+            validatedAt: new Date(t).toISOString()
+        },
+        turns: [
+            // The caller says "yes" to something else — no readback was spoken.
+            { role: 'user', text: 'はい、お願いします。', at: new Date(t + 1000).toISOString() }
+        ]
+    };
+    const result = handleRealtimeToolCalls({
+        event: finishEvent('f5'),
+        state,
+        callEndConfig: buildCallEndConfig(),
+        handoffConfig: { enabled: false, numbers: [] }
+    });
+    assert.equal(result.callEndRequests.length, 0);
+    assert.equal(state.callbackPhone.confirmed, false);
 });
