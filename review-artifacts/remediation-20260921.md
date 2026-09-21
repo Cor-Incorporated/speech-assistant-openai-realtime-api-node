@@ -33,4 +33,13 @@
 - 実PSTNでの転送・音声再生・割込み・DTMF動作
 - 実OpenAIキーを使った`check:realtime`/`smoke:media-stream`の往復音声
 - レビューが「人間確認が必要」とした公開知識17件の確定
-- 本番デプロイ(本PRのマージと別ゲートの承認が必要)
+- ~~本番デプロイ~~ → 下記「本番デプロイ検証」参照
+
+## 本番デプロイ検証(2026-09-21 14:xx JST)
+
+- PR #97をdevelopへマージ(merge commit `f5f9272`)、Actions run `35563322444` Deploy Cloud Run成功(2分34秒)
+- 新revision `speech-assistant-realtime-00033-b6j` が100%トラフィック、`/health`=`{"status":"ok"}`
+- **R01(本番実測)**: トークンなしstart送信→`closed:4403:forbidden`。未認証アイドル接続→10.3秒で`closed:4403:stream_auth_timeout`。いずれもproviderセッションは作成されない
+- **R09(本番実測)**: プローブ切断のセッションが`callLogsV2/session_1789967372672`として投影済み(`origin:provider`,`createdBy:system:call-projection`,`call.project`イベント成功)
+- 起動ログにエラーなし。`call projection disabled`警告なし=admin v2リポジトリ経路で投影が有効化済み
+- 未実施: 実電話による音声品質・転送の確認(発信者側の操作が必要)
