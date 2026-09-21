@@ -62,6 +62,10 @@ export class KnowledgeReader {
     private cache: CachedRelease | null = null;
     private cacheEpoch = -1;
     private lastGood: CachedRelease | null = null;
+    // REVIEW-R04: the revoked set must survive a settings-read failure —
+    // serving a last-known release with an EMPTY revoked list resurrects
+    // withdrawn knowledge during the outage.
+    private lastKnownRevokedIds: readonly string[] = [];
     private readonly maxItems: number;
     private readonly maxAnswerChars: number;
     private readonly maxStaleMs: number;
@@ -150,7 +154,7 @@ export class KnowledgeReader {
                     settings: {
                         currentReleaseId: stale.releaseId,
                         revocationEpoch: this.cacheEpoch,
-                        revokedKnowledgeIds: [],
+                        revokedKnowledgeIds: [...this.lastKnownRevokedIds],
                         updatedAt: ''
                     },
                     stale: true
@@ -165,6 +169,7 @@ export class KnowledgeReader {
 
         if (this.cache && this.cache.releaseId === settings.currentReleaseId) {
             this.cacheEpoch = settings.revocationEpoch;
+            this.lastKnownRevokedIds = settings.revokedKnowledgeIds;
             return { status: 'ok', cache: this.cache, settings, stale: false };
         }
 
@@ -191,6 +196,7 @@ export class KnowledgeReader {
             loadedAt: this.now()
         };
         this.cacheEpoch = settings.revocationEpoch;
+        this.lastKnownRevokedIds = settings.revokedKnowledgeIds;
         this.lastGood = this.cache;
         return { status: 'ok', cache: this.cache, settings, stale: false };
     }
@@ -204,14 +210,88 @@ export class KnowledgeReader {
     }
 }
 
+// REVIEW-R07: natural Japanese questions must retrieve the same items as
+// bare keyword queries. Whitespace splitting alone turns
+// 「御社の住所を教えてください」 into one giant term that matches nothing —
+// the query is segmented on particles/politeness markers, expanded through
+// a synonym table, and scored per conceptual term (max, not sum) with a
+// CJK-bigram coverage bonus.
+
+/** Particles, politeness forms, and interrogatives that carry no retrieval
+ * signal — splitting on them yields content-bearing segments. */
+const SEGMENT_SPLIT =
+    /[\s、。？！?!…・「」『』（）()：:]+|ください|下さい|教えて|おしえて|お願いします|お願い|でしょうか|ですか|いただき|たい|です|ます|を|が|は|の|に|へ|で|と|も|から|まで|より|ね|よ|な|か/g;
+
+/** Synonym groups — a segment matching any member is expanded to the whole
+ * group so 代表者/代表取締役/社長 retrieve the same item. */
+const SYNONYM_GROUPS: readonly (readonly string[])[] = [
+    ['代表取締役', '代表者', '代表', '社長', 'ceo'],
+    ['住所', '所在地', '本社', '本社所在地', 'アクセス', '場所', '地図'],
+    ['営業時間', '受付時間', '営業日', '定休日', '休業日', '開店', '閉店', '何時'],
+    ['料金', '価格', '費用', '値段', '金額', 'いくら', 'プラン'],
+    ['電話番号', '連絡先', '電話', 'fax', '問い合わせ先'],
+    ['会社名', '社名', '名称', '会社概要'],
+    ['設立', '創業', '設立年月日'],
+    ['事業内容', '事業', 'サービス', '業務内容', '仕事内容'],
+    ['会社', '御社', '貴社', 'そちら', 'cor'],
+    ['メールアドレス', 'メール', 'mail', 'eメール'],
+    ['担当者', '担当', 'スタッフ', 'オペレーター'],
+    ['採用', '求人', '採用情報', '募集'],
+    ['名前', '氏名', 'お名前'],
+    ['資本金', '資本'],
+    ['決算', '決算期', '決算月']
+];
+
+const CJK_CHAR = /[\u3040-\u30ff\u3400-\u9fff\uFF66-\uFF9F]/;
+
+/** Split a normalized query into content segments (≥2 chars, or a single
+ * latin/digit run) with particles and politeness forms removed. */
+function querySegments(normalizedQuery: string): string[] {
+    return normalizedQuery
+        .split(SEGMENT_SPLIT)
+        .map((s) => s.trim())
+        .filter((s) => s.length >= 2 || /^[a-z0-9]/.test(s));
+}
+
+/** Expand each segment into a synonym group — one conceptual term, one
+ * score. A segment that contains a member (代表取締役 ⊃ 代表) joins the group. */
+function termGroups(segments: string[]): string[][] {
+    return segments.map((segment) => {
+        for (const group of SYNONYM_GROUPS) {
+            if (group.some((member) => segment === member
+                || (member.length >= 2 && segment.includes(member))
+                || (segment.length >= 2 && member.includes(segment)))) {
+                return [...group];
+            }
+        }
+        return [segment];
+    });
+}
+
+function cjkBigrams(text: string): Set<string> {
+    const grams = new Set<string>();
+    let run = '';
+    const flush = () => {
+        for (let i = 0; i + 1 < run.length; i += 1) grams.add(run.slice(i, i + 2));
+        if (run.length === 2) grams.add(run);
+        run = '';
+    };
+    for (const ch of text) {
+        if (CJK_CHAR.test(ch)) run += ch;
+        else flush();
+    }
+    flush();
+    return grams;
+}
+
 /** Deterministic small-scale scoring over the whitelisted snapshot —
  * key/category/keyword/title/answer/value text. No embeddings, no external
  * calls, and query text is never executed as anything but a string. */
 function scoreItem(item: PublishedKnowledgeItem, normalizedQuery: string): number {
-    const terms = normalizedQuery.split(/\s+/).filter(Boolean);
-    if (terms.length === 0) return 0;
+    const segments = querySegments(normalizedQuery);
+    const groups = termGroups(segments);
+    if (groups.length === 0) return 0;
 
-    let score = 0;
     const key = nfkc(item.key);
     const title = nfkc(item.title);
     const category = nfkc(item.category);
@@ -219,15 +299,47 @@ function scoreItem(item: PublishedKnowledgeItem, normalizedQuery: string): numbe
     const answer = nfkc(item.answerJa ?? '');
     const valueText = nfkc(JSON.stringify(item.value));
 
-    for (const term of terms) {
-        if (key === term || key.includes(term)) score += 6;
-        if (keywords.some((k) => k === term)) score += 5;
-        if (keywords.some((k) => k.includes(term) || term.includes(k))) score += 3;
-        if (title.includes(term)) score += 3;
-        if (category === term) score += 2;
-        if (answer.includes(term)) score += 1;
-        if (valueText.includes(term)) score += 1;
+    let score = 0;
+    let matchedGroups = 0;
+    for (const group of groups) {
+        // A conceptual term scores once — its best field across all synonyms.
+        let groupScore = 0;
+        for (const term of group) {
+            let termScore = 0;
+            if (key === term) termScore = 8;
+            else if (key.length >= 2 && (key.includes(term) || term.includes(key))) termScore = 6;
+            if (keywords.some((k) => k === term)) termScore = Math.max(termScore, 6);
+            if (keywords.some((k) => k.length >= 2 && (k.includes(term) || term.includes(k)))) {
+                termScore = Math.max(termScore, 4);
+            }
+            if (title === term) termScore = Math.max(termScore, 5);
+            else if (title.includes(term) || (term.length >= 2 && term.includes(title))) {
+                termScore = Math.max(termScore, 3);
+            }
+            if (category === term) termScore = Math.max(termScore, 2);
+            if (answer.includes(term)) termScore = Math.max(termScore, 1);
+            if (valueText.includes(term)) termScore = Math.max(termScore, 1);
+            groupScore = Math.max(groupScore, termScore);
+        }
+        score += groupScore;
+        if (groupScore > 0) matchedGroups += 1;
     }
+
+    // Coverage bonus: fraction of the query's content CJK bigrams the item
+    // reproduces — catches 代表者-of-代表取締役 style near misses without
+    // letting particle noise inflate unrelated items.
+    const queryGrams = new Set<string>();
+    for (const segment of segments) {
+        for (const g of cjkBigrams(segment)) queryGrams.add(g);
+    }
+    if (queryGrams.size > 0 && matchedGroups > 0) {
+        const haystack = `${key} ${title} ${category} ${keywords.join(' ')} ${answer} ${valueText}`;
+        const itemGrams = cjkBigrams(haystack);
+        let covered = 0;
+        for (const g of queryGrams) if (itemGrams.has(g)) covered += 1;
+        score += Math.round(4 * (covered / queryGrams.size));
+    }
+
     // Whole-phrase hit beats scattered term hits.
     if (answer.includes(normalizedQuery) || title.includes(normalizedQuery)) score += 4;
     if (key === normalizedQuery) score += 8;
