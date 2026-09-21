@@ -43,3 +43,35 @@
 - **R09(本番実測)**: プローブ切断のセッションが`callLogsV2/session_1789967372672`として投影済み(`origin:provider`,`createdBy:system:call-projection`,`call.project`イベント成功)
 - 起動ログにエラーなし。`call projection disabled`警告なし=admin v2リポジトリ経路で投影が有効化済み
 - 未実施: 実電話による音声品質・転送の確認(発信者側の操作が必要)
+
+## 再検収(2026-09-21) 修復記録 — RR01〜RR07
+
+**再検収**: レビュアーによる追加境界テスト10件(N01〜N10)で前回修復の不備を検出。判定「不合格」
+**修復ブランチ**: `fix/reception-recheck-remediation-20260921` → PR #99 (develop宛、merge commit `0cd9be1`)
+
+| # | 指摘 | 対応 | 検証 |
+|---|---|---|---|
+| RR01 | 終了時v2投影が`extraction.model: undefined`でFirestore拒否 | 投影値からundefined除去。`model`は抽出モデル名がある場合のみ付与 | `extended-contracts.test.mjs` N06(実Firestoreシリアライザ通過)緑 |
+| RR02 | watchdog stage2がフラグのみで実終了しない。無音PCMU(0xff)で解除 | stage2で実際に通話終了ワークフローへ移行。無音PCMUペイロードは可聴進捗とみなさない | `extended-media.test.mjs` N08(25秒以内終了)/N09(無音パケットで解除されない)緑 |
+| RR03 | 未認証接続の切断でv2レコード+通知処理が作成 | close handlerに認証成功ゲート。認証失敗・timeout・start前切断では業務レコード0/通知0/provider接続0 | 同テスト N10緑。本番プローブ後のFirestore読取で新規レコード0件を実測 |
+| RR04 | Realtime `session.tools`の`strict:true`を実APIが拒否 | provider別にtool schemaを整形しRealtimeからは`strict`を除去。`OPENAI_REALTIME_WS_URL` override追加でwire検証可能化 | wire検証 `tools=3 names=validate_callback_phone,lookup_company_knowledge,finish_reception / strict fields:[null,null,null]` |
+| RR05 | 番号確認が復唱内容・訂正に結び付かない | 復唱した番号値とturnを対応付け。訂正・否定で既存確認を取消。「間違いありません」等の肯定を否定regexに誤認させない | `extended-contracts.test.mjs` N01/N02/N03緑 |
+| RR06 | 未知商品に別サービス料金を回答 | 「グリフト」同義表記を追加。商品未特定時は一般語一致のみで断定せず確認質問/unknownへ | 同テスト + `knowledge-reader.test.js`緑 |
+| RR07 | 開始時空データが有効値を占有・needsReview未更新・transportState巻戻し | 未編集のeffectiveは抽出値で初期化。後発escalationでneedsReview反映。終了済みcallのconnected巻戻し防止 | 同テスト N04/N05/N07緑 |
+
+## 再検収修復の検証エビデンス
+
+- `npm test` — `# tests 348 / # pass 348 / # fail 0`(26スイート)
+- `review-artifacts/extended-contracts.test.mjs` — N01〜N07全緑(修復前は7 FAILでred確認済み)
+- `review-artifacts/extended-media.test.mjs` — 13サブテスト全緑(N08 25秒以内終了、N09無音PCMU非解除、N10未認証副作用なし含む)
+- CI(Node checks)run `35567236671` — success(1分51秒)
+
+## 再検収修復の本番デプロイ検証(2026-09-21 15:1x JST)
+
+- PR #99をdevelopへマージ(`0cd9be1`)、Actions run `35567415943` Deploy Cloud Run成功(2分23秒)
+- 新revision `speech-assistant-realtime-00035-krm` が100%トラフィック
+- `/health`=`{"status":"ok"}`、`/`=正常応答
+- **R01再確認(本番実測)**: トークンなしstart→`closed:4403:forbidden`(0.7秒)、未認証アイドル→`closed:4403:stream_auth_timeout`(10.1秒)
+- **RR03(本番実測)**: 上記未認証プローブ2回の実施前後で`callLogsV2`が2件のまま変化なし(新規業務レコード0)
+- Cloud Logging(新revision): 起動正常、プローブの接続/切断を記録、エラーなし
+- 未実施: 認証済みストリームの本番検証(無音watchdog・provider音声・v2終了投影)はTwilio Auth TokenのHMAC署名が必要なため、実PSTN通話またはトークン発行済み試験経路での確認待ち
