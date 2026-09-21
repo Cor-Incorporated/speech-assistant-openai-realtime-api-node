@@ -541,12 +541,21 @@ const buildRealtimeSessionConfig = ({
 
     if (includeModel) session.model = realtimeModel;
 
+    // RECHECK-RR04: tool defs are shared between the Responses/Live
+    // delegation channel (which accepts `strict`) and the Realtime
+    // session.tools surface (which rejects it as unknown_parameter).
+    // Strip Realtime-unsupported fields here instead of forking the defs.
+    const toRealtimeTool = (tool) => {
+        if (!tool) return tool;
+        const { strict, ...rest } = tool;
+        return rest;
+    };
     session.tools = [
         VALIDATE_CALLBACK_PHONE_TOOL,
         ...(KNOWLEDGE_TOOL_DEF ? [KNOWLEDGE_TOOL_DEF] : []),
         ...(TRANSFER_TO_HUMAN_TOOL && !handoffFallback ? [TRANSFER_TO_HUMAN_TOOL] : []),
         ...(FINISH_RECEPTION_TOOL ? [FINISH_RECEPTION_TOOL] : [])
-    ];
+    ].map(toRealtimeTool);
     if (session.tools.length > 0) {
         session.tool_choice = 'auto';
     }
@@ -920,7 +929,10 @@ fastify.register(async (fastify) => {
         session.playback = session.playback || { epoch: 0 };
 
         const createRealtimeSocket = (model) => new WebSocket(
-            `wss://api.openai.com/v1/realtime?model=${encodeURIComponent(model)}`,
+            // Same override pattern as OPENAI_LIVE_WS_URL — lets the wire
+            // contract be exercised against a local stub in tests.
+            process.env.OPENAI_REALTIME_WS_URL
+                || `wss://api.openai.com/v1/realtime?model=${encodeURIComponent(model)}`,
             {
                 headers: {
                     Authorization: `Bearer ${OPENAI_API_KEY}`
@@ -1491,6 +1503,15 @@ fastify.register(async (fastify) => {
                 toolWatchdogTimer = null;
             }
         };
+        // RECHECK-RR02/N09: a frame of pure silence is not audible progress.
+        // μ-law silence is 0xff/0x7f and PCM16 silence is 0x00 — a payload
+        // made only of these bytes keeps the socket busy but says nothing.
+        const SILENT_AUDIO_BYTES = new Set([0x00, 0x7f, 0xff]);
+        const isSilentAudioDelta = (deltaBase64) => {
+            if (!deltaBase64) return true;
+            const bytes = Buffer.from(deltaBase64, 'base64');
+            return bytes.length === 0 || bytes.every((b) => SILENT_AUDIO_BYTES.has(b));
+        };
         const armToolWatchdog = (stage = 1) => {
             if (providerMode !== 'live' || toolWatchdogMs < 2000) return;
             clearToolWatchdog();
@@ -1524,7 +1545,18 @@ fastify.register(async (fastify) => {
                     result: 'failure',
                     metadata: { watchdogMs: toolWatchdogMs }
                 });
+                // RECHECK-RR02/N08: a flag-only requestCallEnd waits for a
+                // final phrase that will never arrive from a dead provider —
+                // the call stays open in silence. Record the request for
+                // the audit trail, then terminate the call for real:
+                // gate-checked Twilio hangup plus socket close.
                 requestCallEnd({ source: 'live_tool_watchdog', reason: 'tool_response_stalled' });
+                completeCallAfterFinalAudio('live_tool_watchdog_silence').catch((error) => {
+                    console.error(`Watchdog call end failed: ${error.message}`);
+                    if (connection.readyState === WebSocket.OPEN) {
+                        connection.close(1000, 'tool_watchdog_silence');
+                    }
+                });
             }, toolWatchdogMs);
         };
 
@@ -1967,15 +1999,21 @@ fastify.register(async (fastify) => {
                             flushPendingInboundAudio();
                             break;
 
-                        case 'audio_delta':
-                            // REVIEW-R02: audible progress is the ONLY thing
-                            // that satisfies the tool watchdog — lifecycle
-                            // notifications never clear it.
-                            clearToolWatchdog();
-                            liveState.outputAudioActive = true;
-                            liveState.lastAudioDeltaAt = Date.now();
+                        case 'audio_delta': {
+                            // REVIEW-R02/RECHECK-RR02: audible progress is
+                            // the ONLY thing that satisfies the tool
+                            // watchdog — lifecycle notifications never clear
+                            // it, and neither does a frame of pure silence.
+                            if (!isSilentAudioDelta(classified.delta)) {
+                                clearToolWatchdog();
+                                liveState.outputAudioActive = true;
+                                liveState.lastAudioDeltaAt = Date.now();
+                            }
+                            // Silent frames still forward to Twilio so
+                            // playback timing stays continuous.
                             sendAudioToTwilio(liveState.codec.decodeOutput(classified.delta));
                             break;
+                        }
 
                         case 'input_transcript_delta':
                             // Caller speech is user-visible continuation —
@@ -2606,6 +2644,27 @@ fastify.register(async (fastify) => {
                 console.log(session.transcript);
             }
 
+            // RECHECK-RR03: only a stream that completed authentication AND
+            // processed a valid start frame may produce business records,
+            // notifications, or v2 projections. A rejected, still-deferred,
+            // or pre-start disconnect leaves only the security audit trail —
+            // no callLogs entry, no email, no callLogsV2 document.
+            const streamAccepted = !streamAuthDeferred && Boolean(session.streamSid);
+            if (!streamAccepted) {
+                auditLog('twilio.media_stream.business_effects_skipped', {
+                    actor: 'twilio',
+                    target: session.callSid || sessionId,
+                    result: 'skipped',
+                    metadata: {
+                        reason: streamAuthDeferred ? 'stream_auth_incomplete' : 'no_start_frame'
+                    }
+                });
+                callLifecycle.phase = 'closed';
+                session.lifecycle = callLifecycle.phase;
+                sessions.delete(sessionId);
+                return;
+            }
+
             const extraction = callLogSinks.shouldSkipSmokeLog(session)
                 ? null
                 : await processTranscriptAndSend(session.transcript, session.callSid || sessionId);
@@ -2645,7 +2704,10 @@ fastify.register(async (fastify) => {
                     callbackRequestedWindow: extraction.preferredDatetime ?? null,
                     intent: extraction.intent ?? null,
                     memo: null,
-                    model: extraction.model ?? undefined,
+                    // Firestore rejects undefined values — only include the
+                    // model field when the extractor actually reported one
+                    // (RECHECK-RR01).
+                    ...(extraction.model ? { model: extraction.model } : {}),
                     extractedAt: new Date().toISOString()
                 } : (session.callbackPhone?.valid ? {
                     callbackNumber: session.callbackPhone.normalizedPhoneNumber

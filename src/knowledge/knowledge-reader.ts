@@ -114,6 +114,15 @@ export class KnowledgeReader {
             .sort((a, b) => b.score - a.score || a.item.knowledgeId.localeCompare(b.item.knowledgeId))
             .slice(0, this.maxItems);
 
+        // RECHECK-RR06: an unmatched entity term (a katakana/roman product
+        // name the caller named but we know nothing about) must not be
+        // answered from a generic sibling item — say unknown so the voice
+        // layer asks for clarification instead of quoting the wrong price.
+        const unknownEntity = findUnknownEntityTerm(normalized, candidates);
+        if (unknownEntity) {
+            return { status: 'unknown', releaseId: cache.releaseId, stale, items: [] };
+        }
+
         if (matched.length === 0) {
             return { status: 'unknown', releaseId: cache.releaseId, stale, items: [] };
         }
@@ -239,7 +248,10 @@ const SYNONYM_GROUPS: readonly (readonly string[])[] = [
     ['採用', '求人', '採用情報', '募集'],
     ['名前', '氏名', 'お名前'],
     ['資本金', '資本'],
-    ['決算', '決算期', '決算月']
+    ['決算', '決算期', '決算月'],
+    // Product names: speech recognition renders "Grift" as katakana —
+    // both surface forms must resolve to the same published items.
+    ['grift', 'グリフト']
 ];
 
 const CJK_CHAR = /[\u3040-\u30ff\u3400-\u9fff\uFF66-\uFF9F]/;
@@ -282,6 +294,34 @@ function cjkBigrams(text: string): Set<string> {
     }
     flush();
     return grams;
+}
+
+// A katakana word or roman token that matches NO published item is most
+// likely a product/service name the caller misheard or misremembered —
+// answering from a generic item would attribute another service's facts to
+// it (RECHECK-RR06: "ブリストの料金" must not return generic pricing).
+const JA_ENTITY_PATTERN = /^[ァ-ヶー]{2,}$|^[a-z][a-z0-9.-]*$/i;
+
+const segmentInSynonymGroup = (segment: string): boolean =>
+    SYNONYM_GROUPS.some((group) => group.some((member) =>
+        segment === member
+        || (member.length >= 2 && segment.includes(member))
+        || (segment.length >= 2 && member.includes(segment))));
+
+function findUnknownEntityTerm(
+    normalizedQuery: string,
+    candidates: PublishedKnowledgeItem[]
+): string | null {
+    for (const segment of querySegments(normalizedQuery)) {
+        if (!JA_ENTITY_PATTERN.test(segment) || segmentInSynonymGroup(segment)) {
+            continue;
+        }
+        const hit = candidates.some((item) =>
+            nfkc(`${item.key} ${item.title} ${item.category} ${item.keywords.join(' ')} ${item.answerJa ?? ''} ${JSON.stringify(item.value)}`)
+                .includes(segment));
+        if (!hit) return segment;
+    }
+    return null;
 }
 
 /** Deterministic small-scale scoring over the whitelisted snapshot —

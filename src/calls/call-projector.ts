@@ -19,6 +19,29 @@ import type { EscalationRepository, EscalationCase } from '../escalations/escala
 
 const SYSTEM_ACTOR = 'system:call-projection';
 
+/** Firestore rejects `undefined` values outright — strip them recursively so
+ * a missing optional field degrades to absence, never to a write failure
+ * (RECHECK-RR01). */
+const dropUndefined = <T>(value: T): T => {
+    if (Array.isArray(value)) {
+        return value.map((entry) => dropUndefined(entry)) as T;
+    }
+    if (value !== null && typeof value === 'object') {
+        const out: Record<string, unknown> = {};
+        for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
+            if (entry === undefined) continue;
+            out[key] = dropUndefined(entry);
+        }
+        return out as T;
+    }
+    return value;
+};
+
+/** Terminal transport states must never regress to a pre-terminal one —
+ * a late duplicate "start" projection cannot reopen an ended call
+ * (RECHECK-RR07/N07). */
+const TERMINAL_TRANSPORT_STATES: ReadonlySet<TransportState> = new Set(['ended', 'failed']);
+
 export interface ProviderCallProjection {
     /** Provider call id — used as the v2 callId so the same call projects once. */
     callId: string;
@@ -65,6 +88,32 @@ export interface ProviderCallProjection {
     now?: () => string;
 }
 
+/** The effective-fields value the projector itself would derive from an
+ * extraction — used to tell projector-written values apart from human
+ * edits so a late extraction can still populate untouched fields while a
+ * human correction is never overwritten (RECHECK-RR07/N04). */
+const projectedEffective = (extraction: ProviderCallProjection['extraction']) => ({
+    summary: extraction?.summary ?? null,
+    callerName: extraction?.callerName ?? null,
+    callerNameKana: null,
+    callbackNumber: extraction?.callbackNumber ?? null,
+    callbackRequestedWindow: extraction?.callbackRequestedWindow ?? null,
+    intent: extraction?.intent ?? null,
+    memo: null
+});
+
+const effectiveEquals = (
+    effective: CallRecord['effective'],
+    expected: ReturnType<typeof projectedEffective>
+): boolean =>
+    effective.summary === expected.summary
+    && effective.callerName === expected.callerName
+    && effective.callerNameKana === expected.callerNameKana
+    && effective.callbackNumber === expected.callbackNumber
+    && effective.callbackRequestedWindow === expected.callbackRequestedWindow
+    && effective.intent === expected.intent
+    && effective.memo === expected.memo;
+
 const mergeRecord = (
     existing: CallRecord | null,
     input: ProviderCallProjection,
@@ -81,12 +130,28 @@ const mergeRecord = (
                 : input.outcome === 'completed' ? 'done'
                     : 'new';
 
+    // The start-time projection writes effective = all-null. If it still
+    // equals what the previous extraction derived, no human touched it —
+    // refresh from the new extraction. Any divergence means a human edit
+    // exists and is preserved verbatim.
+    const effective = existing
+        ? (effectiveEquals(existing.effective, projectedEffective(existing.extraction))
+            ? projectedEffective(extraction)
+            : existing.effective)
+        : projectedEffective(extraction);
+
+    const transportState = existing
+        && TERMINAL_TRANSPORT_STATES.has(existing.transportState)
+        && !TERMINAL_TRANSPORT_STATES.has(input.transportState)
+        ? existing.transportState
+        : input.transportState;
+
     return {
         schemaVersion: CALL_SCHEMA_VERSION,
         callId: input.callId,
         origin: 'provider',
         providerCallSid: input.callId,
-        transportState: input.transportState,
+        transportState,
         startedAt: input.startedAt ?? existing?.startedAt ?? now,
         endedAt: input.endedAt ?? existing?.endedAt ?? null,
         durationSeconds: input.durationSeconds ?? existing?.durationSeconds ?? null,
@@ -97,22 +162,17 @@ const mergeRecord = (
         extraction: extraction
             ? { ...extraction }
             : (existing?.extraction ?? {}),
-        effective: existing?.effective ?? {
-            summary: extraction?.summary ?? null,
-            callerName: extraction?.callerName ?? null,
-            callerNameKana: null,
-            callbackNumber: extraction?.callbackNumber ?? null,
-            callbackRequestedWindow: extraction?.callbackRequestedWindow ?? null,
-            intent: extraction?.intent ?? null,
-            memo: null
-        },
+        effective,
         ops: {
             status: existing?.ops.status === 'done' ? 'done' : status,
             assignee: existing?.ops.assignee ?? null,
             callbackStatus: input.callbackRequired
                 ? (existing?.ops.callbackStatus === 'completed' ? 'completed' : 'pending')
                 : (existing?.ops.callbackStatus ?? 'not_required'),
-            needsReview: existing?.ops.needsReview ?? escalated,
+            // Review flags only ever go false -> true on a projection —
+            // a human who cleared it does so after the call's last
+            // projection, so re-raising here cannot undo their action.
+            needsReview: existing?.ops.needsReview === true || escalated,
             tags: existing?.ops.tags ?? []
         },
         severity: {
@@ -141,6 +201,12 @@ const mergeRecord = (
     };
 };
 
+const mergeRecordSanitized = (
+    existing: CallRecord | null,
+    input: ProviderCallProjection,
+    now: string
+): CallRecord => dropUndefined(mergeRecord(existing, input, now));
+
 /**
  * Project one provider call into the v2 store. Idempotent: repeated calls
  * merge onto the same callId, and the escalation case uses a deterministic
@@ -153,7 +219,7 @@ export async function projectProviderCall(
 ): Promise<{ record: CallRecord; escalation: EscalationCase | null }> {
     const now = input.now?.() ?? new Date().toISOString();
     const existing = await repo.get(input.callId);
-    const record = mergeRecord(existing, input, now);
+    const record = mergeRecordSanitized(existing, input, now);
 
     if (existing) {
         await repo.put(record);
