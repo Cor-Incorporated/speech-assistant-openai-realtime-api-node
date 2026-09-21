@@ -1,17 +1,21 @@
 # 音声プロバイダ・ルーティング ロールバック手順
 
-- 対象: ADR 0009 で導入した voice port / Live adapter / Jev classifier / ActionGate・Ledger
-- 原則: 新レイヤーは全て**無効既定**。本番挙動を変えた場合のみ以下を実施。
+- 対象: ADR 0009 で導入した voice port / Live adapter / Jev classifier / ActionGate・Ledger、および Media Streams認証・知識DB音声経路
+- **現行本番状態（2026-09-20時点）**: `VOICE_PROVIDER=live`、`ROUTING_PROVIDER=jev_shadow`、`TWILIO_STREAM_AUTH_ENABLED=true`、知識DB release公開済み。いずれも有効化済みのため、切り戻しは明示的な手順が必要。
 
-## 即時切り戻し（環境変数のみ・デプロイ不要の範囲）
+## 即時切り戻し（GitHub Variables変更 + workflow_dispatch再デプロイ）
 
-| 設定 | 既定 | 切り戻し値 |
-|---|---|---|
-| `VOICE_PROVIDER` | `realtime` | `realtime`（`live` 指定時のみ新経路） |
-| `JEV_CLASSIFIER_ENABLED` | `false` | `false`（shadow含め無効化） |
-| `JEV_SHADOW_ONLY` | `true` | `true` |
+環境変数は `deploy-cloud-run.yml` の `--set-env-vars` で全量管理されるため、`gcloud run services update` での直接変更は**次回デプロイで消える**。切り戻しはGitHub Variable変更 → `Actions → Deploy Cloud Run → Run workflow` で行う。
 
-Live/Jevは既定で無効のため、**通常時は何もしない**のが正しい状態。
+| 設定 | 現在値 | 切り戻し値 | 影響 |
+|---|---|---|---|
+| `VOICE_PROVIDER` | `live` | `realtime` | 従来Realtime経路へ即時復帰 |
+| `TWILIO_STREAM_AUTH_ENABLED` | `true` | `false` | トークン検証を停止（開発用・本番では非推奨） |
+| `LIVE_FALLBACK_TO_REALTIME` | `true` | `false` | Live起動失敗時のRealtime自動復帰を止める |
+
+※ `LIVE_TOOL_WATCHDOG_MS` はワークフロー未配線のため既定10秒が適用される。変更する場合は `deploy-cloud-run.yml` の `env:` と `--set-env-vars` の両方へ追加してから変数を設定する（コード側に既定値あり、未設定でも安全）。
+
+Jevはshadow専用のため、分類が誤っても電話動作に影響しない。Jev自体を止めたい場合のみ `JEV_CLASSIFIER_ENABLED=false`（変数未配線ならworkflowへ追加が必要）。
 
 ## コードレベルの切り戻し
 

@@ -109,6 +109,17 @@ ADMIN_BASIC_USER=admin ADMIN_BASIC_PASSWORD=change-me npm run start
 
 `検証ログ削除` は、`CA_SMOKE` で始まる疎通確認ログと、文字起こし・turns・要約・用件がすべて空のログだけを削除します。
 
+### 管理コンソール v2（`/app/#v2`）
+
+ナレッジ管理（承認・公開release・撤回・プレビュー）・通話訂正・エスカレーション対応の管理画面です。`ADMIN_V2_SUBJECT_MAP` でBasicユーザーへsubject/rolesを付与します。詳細は `docs/admin-v2-knowledge-console.md`。
+
+### 関連ドキュメント
+
+- `docs/media-stream-authentication.md` — Media Streams認証（stream token）とtool応答watchdog
+- `docs/runbooks/voice-provider-rollback.md` — プロバイダ・認証の切り戻し手順
+- `docs/uat-activation-runbook.md` — 機能有効状態とUAT確認手順
+- `docs/reports/` — 検証レポート
+
 管理UIのRealtimeモデル選択はFirestore `runtimeSettings/admin` に保存され、次回以降の新しい通話から `gpt-realtime-2.1-mini`（既定） / `gpt-realtime-2.1` / `gpt-realtime-2`（ロールバック） / `gpt-realtime-1.5` の選択が反映されます。進行中の通話には反映しません。通常音声は `coral` を使い、苦情・支払いトラブルなどで高精度対応モードへ昇格した新しいRealtimeセッションでは `ash` を使います。受託案件は高精度対応モードへ昇格せず、通常モデルから受託担当へ直接転送します。脅迫・暴言・威圧は人間へ自動転送せず、AIコールセンターで対応します。
 
 ## アプリをテスト

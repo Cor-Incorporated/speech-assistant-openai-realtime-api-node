@@ -7,11 +7,16 @@
 | 音声受付 | `https://speech-assistant-realtime-qvghygsdwq-an.a.run.app` | Cloud Run稼働、Twilio 050切替済み |
 | 練習システム | `https://phone-training-system-myegwswlka-an.a.run.app` | Cloud Run稼働、同意・録音・解析経路実装済み |
 
-## 現在ON/OFFの機能
+## 現在ON/OFFの機能（2026-09-20時点）
 
 - DTMFゲートウェイ: ON。`5#` は練習システム、入力なし・その他はAI受付。
-- 携帯転送: OFF。実際の転送先番号が未登録のため。
-- Resend通知: OFF。音声システム専用APIキーが未登録のため。
+- 携帯転送: **ON**。`handoff-numbers`シークレットに `contract`/`general` 宛先を登録済み。転送テストは実番号が鳴るため事前に受け手を用意する。
+- Resend通知: **ON**（`NOTIFY_EMAIL_ENABLED=true`）。
+- 音声プロバイダ: **GPT-Live**（`VOICE_PROVIDER=live`、Realtimeへは `LIVE_FALLBACK_TO_REALTIME=true` で自動復帰）。
+- ルーティング: `ROUTING_PROVIDER=jev_shadow`（Jevはshadow専用・判定権限なし）。
+- Media Streams認証: **ON**（`TWILIO_STREAM_AUTH_ENABLED=true`）。詳細は `docs/media-stream-authentication.md`。
+- admin v2コンソール: ON（`/app/#v2`、`ADMIN_V2_SUBJECT_MAP`でroles付与済み）。
+- 知識DB: seed投入・release公開済み（`rel_20260919004348_9b492cc4`、公開52件）。draft/internalは音声応答に出ない。
 - Emotion Logic: Secretリソース作成済み、値未登録。初回UATは `dummyResponse=true` で実行する。
 
 ## 請求先・データ基盤
@@ -75,8 +80,16 @@ gcloud run services update speech-assistant-realtime \
 ## UAT確認
 
 ```sh
-curl -fsS https://speech-assistant-realtime-qvghygsdwq-an.a.run.app/health
-curl -fsS https://phone-training-system-myegwswlka-an.a.run.app/health
+curl -fsS -o /dev/null -w "%{http_code}\n" https://speech-assistant-realtime-qvghygsdwq-an.a.run.app/
+curl -fsS -o /dev/null -w "%{http_code}\n" https://phone-training-system-myegwswlka-an.a.run.app/
 ```
 
-実通話では、通常着信、`5#`、同意 `1`、録音完了、Firestore結果保存を確認する。携帯転送をONにした後はWhisperで `1` を押す経路と、無応答時のResend通知を別々に確認する。
+※ `/health` / `/healthz` はルート未定義のため `404` を返す。稼働確認は `/` の `200` を使う。
+
+実通話では、通常着信、`5#`、同意 `1`、録音完了、Firestore結果保存を確認する。シナリオ一式・タイミング基準・転送先の実番号はテスト担当向け配布物 `ai-reception-scenario-test-2026-09-18.md`（リポジトリ外の配布ファイル）を参照する。実番号はリポジトリ・issue・ログへ書かない。
+
+追加で確認する項目:
+
+- Media Streams: `TWILIO_STREAM_AUTH_ENABLED=true` ではトークン無しのWS接続は4408/4403で拒否される。実通話のTwiMLでは `wss://<host>/media-stream/<token>` のパス埋込み + `<Parameter name="stream_token">` が出ること（署名付き `/gateway/route` で確認可能）。
+- 無音上限: tool実行中の応答が10秒（`LIVE_TOOL_WATCHDOG_MS`）停滞すると「確認して折り返します」系の案内、さらに無応答なら終話ワークフロー。長時間の無音があれば障害報告。
+- 携帯転送: Whisperで `1` を押す経路と、無応答時の復帰案内・Resend通知を別々に確認する。

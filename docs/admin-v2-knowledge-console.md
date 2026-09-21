@@ -1,6 +1,7 @@
 # Admin v2 / Cor.知識DBコンソール 実装状況
 
-2026-09-19 時点。`fix/reception-audit` ブランチ（worktree `.worktrees/devin/reception-modernization`）。
+2026-09-20 時点。**全て `develop` へマージ・本番デプロイ済み**（PR #92/#93/#95）。
+本番release `rel_20260919004348_9b492cc4` 公開中。
 
 ## アーキテクチャ
 
@@ -40,14 +41,14 @@ CALL_LOG_FIRESTORE_ENABLED=false では全repoがin-memoryに退避（dev用）�
 | 音声tool | knowledge-tool-runtime 5件（公開のみ応答・draft/admin_only/operatorNote非漏洩） | PASS |
 | 実サーバー | `node index.js`起動→status/knowledge作成→承認→release→preview→escalation ACK→手動call作成→If-Match 428 | PASS |
 | Firestore emulator | seed import 172件→再import全skip→衝突exit1→全draft維持・runtimeSettings/callLogs無変更 | PASS（前段） |
-| フル | `npm test` 273/273 | PASS |
+| Playwright E2E | `e2e/admin-v2.spec.ts` 5件（公開フロー・draft負例・If-Match競合・訂正/復元・通知≠受諾） | PASS |
+| フル | `npm test` 280/280 | PASS |
+| 本番 | seed 172件投入→承認→release公開・実電話での知識検索応答確認（実障害2件は修正済み PR #94/#95） | PASS |
 
-## 未検証・保留
+## 残課題
 
-- Playwright UI E2E（画面は実装済み・ブラウザ操作検証は未実施）
-- 実電話でのknowledge tool呼出（実API `session.tools`への広告は配線済み）
-- 本番Firestoreでの動作（named DBへの書込は未承認・emulatorのみ検証）
-- push/PR/merge/deploy: 明示承認待ち
+- 実電話での転送シナリオ（S-02/S-07）は実番号着信のためテスター実施待ち
+- 詳細は `docs/reports/2026-09-20-reception-verification-report.md` を参照
 
 ## 運用メモ
 
