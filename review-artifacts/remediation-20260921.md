@@ -160,3 +160,30 @@
 - 未認証プローブ2回の前後で`callLogsV2`は既存2件のまま(新規業務レコード0)
 - Cloud Logging(新revision): ERROR以上のログなし
 - 未実施: V01の「正常回答後の無言で誤回復しない」+「filler後の障害回復が残る」の同時成立はwire契約とmockで検証済みだが、実Live APIでの再確認は実PSTN通話または認証済みストリーム試験待ち。V02の実Live再現率(2回中1回)は小標本であり、title/key追加後の実Live再試験で改善を確認する必要がある
+
+## 第6回検収(2026-09-21) 修復記録 — W01
+
+**第6回検収**: V01の元反例(D01/D02)は改善したが、同じ待機文をLiveの自然なdelta断片で送るとwatchdogが不可逆に解除される残件(W01)を検出。V02は今回0/2で非再現(音声認識側の揺れ1件は別途記録)。判定「人間受入テストへの移行は保留」
+**修復ブランチ**: `fix/reception-round6-remediation-20260921` → PR #107 (develop宛、merge commit `2a2d4bb`)
+
+| # | 指摘 | 対応 | 検証 |
+|---|---|---|---|
+| W01 | 待機文をdelta断片(「ただいま」「確認して」「おります。」等)で送ると、完成前の句の前方一致部分が実質文字に計上されwatchdogが不可逆に解除。実Liveでも待機文の断片化を観測 | 待機句の前方一致割引を追加。累積transcriptを完成句で除去した後、末尾が待機句の真の前方一致である間は実質文字数に数えない。粒度・順序不変 | `streamed-filler.test.mjs` E01/E02緑(修復前2 FAIL)。D01/D02一括送信・B05/B06無音系・U02正常回答後待機は維持 |
+
+## 第6回検収修復の検証エビデンス
+
+- `npm test` — `# tests 395 / # pass 395 / # fail 0 / # cancelled 0`(新規probeファイル含む)
+- `review-artifacts/streamed-filler.test.mjs` — E01/E02緑(修復前は同入力で26秒後もWS OPEN・watchdog指示0)
+- `review-artifacts/watchdog-boundary.test.mjs` — D01/D02緑を維持
+- `review-artifacts/watchdog-contract.test.mjs` — B05/B06/N08/N09/C05の停止検知・delegation scopeを維持
+- CI(Node checks/h5-admission/gitleaks)— PR #107全緑
+
+## 第6回検収修復の本番デプロイ検証(2026-09-21 20:5x JST)
+
+- PR #107をdevelopへマージ(`2a2d4bb`)、Actions run `35595157782` Deploy Cloud Run成功(2分53秒)
+- 新revision `speech-assistant-realtime-00043-bhp` が100%トラフィック
+- `/health`=`{"status":"ok"}`、`/`=200
+- トークンなしstart→`closed:4403:forbidden`、未認証アイドル→`closed:4403:stream_auth_timeout`(10.1秒)
+- 未認証プローブ2回の前後で`callLogsV2`は既存2件のまま(新規業務レコード0)
+- Cloud Logging(新revision): ERROR以上のログなし
+- 未実施: W01の「断片化された待機文で誤解除しない」はwire契約とmockで検証済み。実Live APIでの最終確認(自然なdelta断片での待機文と正常回答の区別)は実PSTN通話または認証済みストリーム試験待ち。V02の実Live再現率は今回0/2で非再現だが小標本のため、次回検収での再確認が望ましい
