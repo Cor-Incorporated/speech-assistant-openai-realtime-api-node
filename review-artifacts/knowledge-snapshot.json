@@ -1,0 +1,2914 @@
+{
+  "observedAt": "2026-09-21T06:57:44.484086+00:00",
+  "settings": {
+    "updatedAt": "2026-09-19T00:43:48.791Z",
+    "currentReleaseId": "rel_20260919004348_9b492cc4",
+    "schemaVersion": 1,
+    "revocationEpoch": 0,
+    "revokedKnowledgeIds": []
+  },
+  "release": {
+    "createdAt": "2026-09-19T00:43:48.791Z",
+    "createdBy": "kousuke.terada@cor-jp.com",
+    "manifestHash": "961f87080a20810f46f34c93f381f8c40ea1b7a121bac4a299c03a272c3a29bd",
+    "releaseId": "rel_20260919004348_9b492cc4",
+    "entries": [
+      {
+        "knowledgeId": "COR-K-001",
+        "key": "company.name",
+        "revision": 1,
+        "contentHash": "76ba9b9584517665736d79b74e1e9bdd80cd628a4550d744d18d677c66e990a1"
+      },
+      {
+        "knowledgeId": "COR-K-002",
+        "key": "company.english_name",
+        "revision": 1,
+        "contentHash": "4d20464126e8119d87821d1449e82d87f441cd04c627b8a105632611cc14fbec"
+      },
+      {
+        "knowledgeId": "COR-K-003",
+        "key": "company.representative",
+        "revision": 1,
+        "contentHash": "a63b157fd3c0faf083eb87be4a6f25df12419b73633abd680e654124e9229562"
+      },
+      {
+        "knowledgeId": "COR-K-004",
+        "key": "company.positioning",
+        "revision": 1,
+        "contentHash": "e19e8239584536632d83b34f0e654681d18658c7a7fd034dc2c138de7e42925a"
+      },
+      {
+        "knowledgeId": "COR-K-005",
+        "key": "company.working_approach",
+        "revision": 1,
+        "contentHash": "ca38ef31ab661de4ebc5e50a9b492525e1e78658c503b2600ed063d5d864844b"
+      },
+      {
+        "knowledgeId": "COR-K-006",
+        "key": "company.address",
+        "revision": 1,
+        "contentHash": "f6d7853fd97471f09b2a8dbf0f612f5c4df0fc232f5f9aa10c60bc3507b4698c"
+      },
+      {
+        "knowledgeId": "COR-K-007",
+        "key": "company.service_area",
+        "revision": 1,
+        "contentHash": "4b6b0638ee4bbfa800c9ba04572f35738e2f7dbd4f4bfaf71e67fb27e1e7f19d"
+      },
+      {
+        "knowledgeId": "COR-K-008",
+        "key": "contact.website",
+        "revision": 1,
+        "contentHash": "9cdfcb13a2f2971edde84cb19d9cc97027ecd8ab9f42231dc947cf072ce00c38"
+      },
+      {
+        "knowledgeId": "COR-K-009",
+        "key": "contact.web_inquiry",
+        "revision": 1,
+        "contentHash": "e17f64eca9d6b9bdbd4ebe390a9f6af56cb567ff4171b24775ea0a7ba8dedebc"
+      },
+      {
+        "knowledgeId": "COR-K-010",
+        "key": "contact.cloudia_languages",
+        "revision": 1,
+        "contentHash": "b5783da6e86989bccbffcc3e57e18a4393ce412ca2463fca3ff0e248f760f3e3"
+      },
+      {
+        "knowledgeId": "COR-K-011",
+        "key": "contact.web_response_target",
+        "revision": 1,
+        "contentHash": "456cabf6160334233efd828dac9d864b2897ad5dce7bb705144b62a1d431ee73"
+      },
+      {
+        "knowledgeId": "COR-K-012",
+        "key": "contact.meeting_request",
+        "revision": 1,
+        "contentHash": "4874001aa03a844385aaad33960b05760e4169e74039453c58142319b5327b52"
+      },
+      {
+        "knowledgeId": "COR-K-014",
+        "key": "service.assessment",
+        "revision": 1,
+        "contentHash": "c4f60fb75b3b775f07154c493cbed7af188a5b6f8880b7465bc41c84d64fed1e"
+      },
+      {
+        "knowledgeId": "COR-K-015",
+        "key": "service.local_llm",
+        "revision": 1,
+        "contentHash": "424c8b6ba198391199f722d1fcd29b064548602531d7684267fd5a6947e59b52"
+      },
+      {
+        "knowledgeId": "COR-K-016",
+        "key": "service.contract_dev",
+        "revision": 1,
+        "contentHash": "3d6eb3699f0818205407824cd828fb7cb5a3b4cf34df7f0b50dd4a2bf6cb585e"
+      },
+      {
+        "knowledgeId": "COR-K-017",
+        "key": "service.training",
+        "revision": 1,
+        "contentHash": "a2ff78606c44bdcb6473742a29696cdc791485b7fdb48ff45124a731c9fa7c88"
+      },
+      {
+        "knowledgeId": "COR-K-018",
+        "key": "service.voice_reception",
+        "revision": 1,
+        "contentHash": "3eaf41d403213e85a999fe0e643850c420e428e419622964b2d88b20396aac46"
+      },
+      {
+        "knowledgeId": "COR-K-019",
+        "key": "service.cloud_migration",
+        "revision": 1,
+        "contentHash": "5d1140f06e09a04b6c552c79b20a04690a63d7f9416b36d2a29a895739611ddd"
+      },
+      {
+        "knowledgeId": "COR-K-020",
+        "key": "price.assessment",
+        "revision": 1,
+        "contentHash": "d3f07768d698c98f856eb739d1dc4c52ae91d7ab9993eb3ae0df4214e55ba1b1"
+      },
+      {
+        "knowledgeId": "COR-K-021",
+        "key": "price.poc",
+        "revision": 1,
+        "contentHash": "bc554e69407b5bbc7b0360926841014cc56d6bfae69210d1c5d22998457bab5f"
+      },
+      {
+        "knowledgeId": "COR-K-022",
+        "key": "price.custom_estimate",
+        "revision": 1,
+        "contentHash": "ae58ea1590d7935001e50cb782709f7429542824e2d267a80ce3c2b1f4e987e5"
+      },
+      {
+        "knowledgeId": "COR-K-023",
+        "key": "price.extra_costs",
+        "revision": 1,
+        "contentHash": "d6d8e375bdb1155895819d2eab5bd72c66deb80c4d95ae0f1c290fa361e3f3bd"
+      },
+      {
+        "knowledgeId": "COR-K-024",
+        "key": "contract.payment_method",
+        "revision": 1,
+        "contentHash": "7613e208d2f161603935b922ec2daaba38a93d409f4ff0f6dd52d65612e90de1"
+      },
+      {
+        "knowledgeId": "COR-K-025",
+        "key": "contract.payment_timing",
+        "revision": 1,
+        "contentHash": "58a72208855a14e278f0dfcc231df9978b7a71b920c48359ee0bf60289d27d58"
+      },
+      {
+        "knowledgeId": "COR-K-026",
+        "key": "contract.cancel_refund",
+        "revision": 1,
+        "contentHash": "62cf1ab6691d1789b3436cda84c22691b6ed64e9bea7e61b67b0fa1f44f9908d"
+      },
+      {
+        "knowledgeId": "COR-K-027",
+        "key": "contract.warranty",
+        "revision": 1,
+        "contentHash": "8b954796a10a373c5758d20c1b26d7f917034585c7e324402527630fde3e289a"
+      },
+      {
+        "knowledgeId": "COR-K-028",
+        "key": "grift.overview",
+        "revision": 1,
+        "contentHash": "71674945cdfbd411ff9cbf8a312c425039cfe4aa89e4c56a76caf090e6b14266"
+      },
+      {
+        "knowledgeId": "COR-K-029",
+        "key": "grift.target",
+        "revision": 1,
+        "contentHash": "26030f6223303b1c564d751c31feddf3e0cfc87b601d32dcc9ad9dc98516f9bd"
+      },
+      {
+        "knowledgeId": "COR-K-030",
+        "key": "grift.stage",
+        "revision": 1,
+        "contentHash": "fa51c69725312d13923c9b7f43fa4d58d984fae923d1f6d0fe7baa95b69ff889"
+      },
+      {
+        "knowledgeId": "COR-K-031",
+        "key": "grift.website",
+        "revision": 1,
+        "contentHash": "992e17b0bfd93b2e99d3395a0bd4e475904aa7c9f768ed1bb52e961f69075e85"
+      },
+      {
+        "knowledgeId": "COR-K-032",
+        "key": "grift.price.team_beta",
+        "revision": 1,
+        "contentHash": "08bac751afeab82e7c5b411dcf91e71d7713177843cd1145fc407d5bc6c058d5"
+      },
+      {
+        "knowledgeId": "COR-K-033",
+        "key": "grift.price.paid_trial",
+        "revision": 1,
+        "contentHash": "b697da6da302467d764395e338a157216fefcc5c064f043594a99f83c2a93684"
+      },
+      {
+        "knowledgeId": "COR-K-034",
+        "key": "grift.price.audit",
+        "revision": 1,
+        "contentHash": "7babc32239d86bcd627a2fe203f89e02bfb0c4149bbeec27ccd237ba0579de06"
+      },
+      {
+        "knowledgeId": "COR-K-035",
+        "key": "security.isms",
+        "revision": 1,
+        "contentHash": "4acbe3747ce3e2eda85c814116d9da412689dcc5a5e0c49c4b6778753eeda97a"
+      },
+      {
+        "knowledgeId": "COR-K-036",
+        "key": "security.data_boundary",
+        "revision": 1,
+        "contentHash": "29f275e66f78496f3492e944c9f8aee0f828dbea5d37599dae3a602be30559f6"
+      },
+      {
+        "knowledgeId": "COR-K-037",
+        "key": "privacy.inquiry",
+        "revision": 1,
+        "contentHash": "6bb9794fd4d1254bab87c224a4551d4b692d8b6f12bfcb552ffa5ed4750f76b0"
+      },
+      {
+        "knowledgeId": "COR-K-039",
+        "key": "portfolio.public_cases",
+        "revision": 1,
+        "contentHash": "94ce62bc9ce8616d628ed4e7ddf5dd7df49da5e01acf28336e12c684dfc9014a"
+      },
+      {
+        "knowledgeId": "COR-K-040",
+        "key": "portfolio.ecn",
+        "revision": 1,
+        "contentHash": "c7bb6ec25c1e853c66e711f738ee5b1b4462087aa26f3973f27583e9afa0f781"
+      },
+      {
+        "knowledgeId": "COR-K-041",
+        "key": "company.pronunciation",
+        "revision": 1,
+        "contentHash": "af014d7dfed1ecada9463b0e529bd4b7d5b1cd154c826ad2dc6dea17b5be6aed"
+      },
+      {
+        "knowledgeId": "COR-K-042",
+        "key": "hours.business",
+        "revision": 1,
+        "contentHash": "6f18b69620bd54a1a79f9fe2ef9b27821573d84be3adb001fdd81c60434119ac"
+      },
+      {
+        "knowledgeId": "COR-K-043",
+        "key": "hours.ai_reception",
+        "revision": 1,
+        "contentHash": "b4c539ecf9c1a4071f1c0c4e09ef423cf3061e07159e23792f6ef762d9a78f7a"
+      },
+      {
+        "knowledgeId": "COR-K-044",
+        "key": "hours.human",
+        "revision": 1,
+        "contentHash": "3286ad0f753debf3950f19616e32424fbf8ad9c1da7f55397f0d3fc1edae2d24"
+      },
+      {
+        "knowledgeId": "COR-K-045",
+        "key": "hours.phone_callback",
+        "revision": 1,
+        "contentHash": "f98e01dfb88e366ae19a0c26a4ef7db401c949ad9340511d416e725d44efe844"
+      },
+      {
+        "knowledgeId": "COR-K-046",
+        "key": "contact.ai_phone",
+        "revision": 1,
+        "contentHash": "36afff99f866c6790ba7b4834bb42bcf8816edca99f61d20baa5e1a9dca9b10f"
+      },
+      {
+        "knowledgeId": "COR-K-047",
+        "key": "contact.email",
+        "revision": 1,
+        "contentHash": "f6b7723df872cf990f563e17cb2751c338911e308f7a0b93b7f43fad99c8fbd4"
+      },
+      {
+        "knowledgeId": "COR-K-048",
+        "key": "human_gate.owner",
+        "revision": 1,
+        "contentHash": "c6ebbdbf0e8987180ecf5c2138d163758814c41f1c36f844864731bb75655bc0"
+      },
+      {
+        "knowledgeId": "COR-K-049",
+        "key": "human_gate.ack",
+        "revision": 1,
+        "contentHash": "7356ee3f4205c2c00c8d5007af74fa96e5f1f583c28cd5b91b067beccc91f73a"
+      },
+      {
+        "knowledgeId": "COR-K-050",
+        "key": "privacy.call_notice",
+        "revision": 1,
+        "contentHash": "9b36aa8d31f4f6e60ea31bbf7ec7de62de1dd0c87f0a18ac484dec9596a0b261"
+      },
+      {
+        "knowledgeId": "COR-K-051",
+        "key": "privacy.retention",
+        "revision": 1,
+        "contentHash": "7773311aa12e651ae47ceef5b8889c03716b1f0fecb2c12194478992e7e2da10"
+      },
+      {
+        "knowledgeId": "COR-K-052",
+        "key": "privacy.external_ai",
+        "revision": 1,
+        "contentHash": "5fbd4f267f511a51e14b736b74eafc515f4a22dccc7f3a6e95f3bba5edb24135"
+      },
+      {
+        "knowledgeId": "COR-K-053",
+        "key": "price.tax",
+        "revision": 1,
+        "contentHash": "bb3d28376d14c347842d8128a981ca4288e0cb0524755bef22e5cb9315af8d22"
+      },
+      {
+        "knowledgeId": "COR-K-054",
+        "key": "sales.recruiting_status",
+        "revision": 1,
+        "contentHash": "1f6d400cb5b84a39026ed7d93cee95356bf35c7492dbd429eeac29de13c70a15"
+      }
+    ],
+    "schemaVersion": 1
+  },
+  "items": [
+    {
+      "keywords": [
+        "company",
+        "会社名"
+      ],
+      "key": "company.name",
+      "answerJa": "Cor.株式会社です。",
+      "answerType": "fact",
+      "asOf": "2026-09-19",
+      "category": "company",
+      "value": {
+        "canonical": "Cor.株式会社",
+        "observed_variant": "Cor株式会社"
+      },
+      "revision": 1,
+      "sourceIds": [
+        "PUB-02",
+        "PUB-03",
+        "PUB-05"
+      ],
+      "locale": "ja-JP",
+      "title": "会社名",
+      "contentHash": "76ba9b9584517665736d79b74e1e9bdd80cd628a4550d744d18d677c66e990a1",
+      "knowledgeId": "COR-K-001",
+      "expiresAt": null,
+      "requiresHumanReview": false,
+      "evidenceState": "official_site_observed"
+    },
+    {
+      "key": "company.english_name",
+      "requiresHumanReview": false,
+      "answerType": "fact",
+      "locale": "ja-JP",
+      "knowledgeId": "COR-K-002",
+      "expiresAt": null,
+      "evidenceState": "official_site_observed",
+      "asOf": "2026-09-19",
+      "revision": 1,
+      "contentHash": "4d20464126e8119d87821d1449e82d87f441cd04c627b8a105632611cc14fbec",
+      "answerJa": "英語ではCor.Inc.と表記しています。",
+      "title": "英語表記",
+      "keywords": [
+        "company",
+        "英語表記"
+      ],
+      "sourceIds": [
+        "PUB-09"
+      ],
+      "category": "company",
+      "value": {
+        "variants": [
+          "Cor.inc",
+          "Cor. Inc."
+        ],
+        "display": "Cor.Inc."
+      }
+    },
+    {
+      "sourceIds": [
+        "PUB-03",
+        "PUB-05"
+      ],
+      "knowledgeId": "COR-K-003",
+      "revision": 1,
+      "requiresHumanReview": false,
+      "asOf": "2026-09-19",
+      "keywords": [
+        "company",
+        "代表者"
+      ],
+      "value": {
+        "role": "代表取締役",
+        "name": "寺田 康佑"
+      },
+      "answerJa": "代表取締役は寺田康佑です。",
+      "locale": "ja-JP",
+      "title": "代表者",
+      "category": "company",
+      "answerType": "fact",
+      "expiresAt": null,
+      "key": "company.representative",
+      "contentHash": "a63b157fd3c0faf083eb87be4a6f25df12419b73633abd680e654124e9229562",
+      "evidenceState": "official_site_observed"
+    },
+    {
+      "knowledgeId": "COR-K-004",
+      "answerType": "fact",
+      "asOf": "2026-09-19",
+      "expiresAt": null,
+      "answerJa": "機密データを扱うAIやローカルLLMを中心に、課題整理から開発・運用まで支援する会社です。",
+      "keywords": [
+        "company",
+        "事業概要"
+      ],
+      "category": "company",
+      "locale": "ja-JP",
+      "title": "事業概要",
+      "revision": 1,
+      "key": "company.positioning",
+      "value": {
+        "focus": [
+          "機密データAI",
+          "ローカルLLM",
+          "Grift",
+          "AI受託開発"
+        ]
+      },
+      "requiresHumanReview": false,
+      "sourceIds": [
+        "PUB-02"
+      ],
+      "contentHash": "e19e8239584536632d83b34f0e654681d18658c7a7fd034dc2c138de7e42925a",
+      "evidenceState": "official_site_observed"
+    },
+    {
+      "title": "相談の進め方",
+      "answerType": "fact",
+      "value": {
+        "approach": "課題整理を先に行い、開発しない選択も検討する"
+      },
+      "knowledgeId": "COR-K-005",
+      "requiresHumanReview": false,
+      "locale": "ja-JP",
+      "sourceIds": [
+        "PUB-02"
+      ],
+      "revision": 1,
+      "asOf": "2026-09-19",
+      "contentHash": "ca38ef31ab661de4ebc5e50a9b492525e1e78658c503b2600ed063d5d864844b",
+      "key": "company.working_approach",
+      "category": "company",
+      "evidenceState": "official_site_observed",
+      "expiresAt": null,
+      "keywords": [
+        "company",
+        "相談の進め方"
+      ],
+      "answerJa": "まず課題を整理し、開発が必要かどうかも含めてご相談を承ります。"
+    },
+    {
+      "asOf": "2026-09-19",
+      "answerType": "fact",
+      "contentHash": "f6d7853fd97471f09b2a8dbf0f612f5c4df0fc232f5f9aa10c60bc3507b4698c",
+      "key": "company.address",
+      "requiresHumanReview": false,
+      "sourceIds": [
+        "PUB-04",
+        "PUB-05"
+      ],
+      "locale": "ja-JP",
+      "revision": 1,
+      "evidenceState": "official_site_observed",
+      "keywords": [
+        "company",
+        "contact",
+        "所在地"
+      ],
+      "knowledgeId": "COR-K-006",
+      "answerJa": "所在地は福岡市中央区天神2丁目3番10号、天神パインクレスト719号です。",
+      "value": {
+        "prefecture": "福岡県",
+        "street": "天神2丁目3-10",
+        "building": "天神パインクレスト719号",
+        "city": "福岡市中央区",
+        "postal_code": "810-0001"
+      },
+      "expiresAt": null,
+      "category": "contact",
+      "title": "所在地"
+    },
+    {
+      "answerJa": "福岡を拠点に、全国からのご相談に対応しています。",
+      "locale": "ja-JP",
+      "keywords": [
+        "company",
+        "対応エリア"
+      ],
+      "contentHash": "4b6b0638ee4bbfa800c9ba04572f35738e2f7dbd4f4bfaf71e67fb27e1e7f19d",
+      "category": "company",
+      "evidenceState": "official_site_observed",
+      "revision": 1,
+      "sourceIds": [
+        "PUB-01",
+        "PUB-09"
+      ],
+      "answerType": "fact",
+      "key": "company.service_area",
+      "value": {
+        "base": "福岡",
+        "coverage": "全国"
+      },
+      "asOf": "2026-09-19",
+      "title": "対応エリア",
+      "knowledgeId": "COR-K-007",
+      "requiresHumanReview": false,
+      "expiresAt": null
+    },
+    {
+      "title": "公式サイト",
+      "revision": 1,
+      "evidenceState": "official_site_observed",
+      "answerType": "fact",
+      "knowledgeId": "COR-K-008",
+      "value": {
+        "url": "https://cor-jp.com/"
+      },
+      "expiresAt": null,
+      "keywords": [
+        "contact",
+        "公式サイト"
+      ],
+      "answerJa": "Cor.の公式サイトでサービス概要をご確認いただけます。",
+      "category": "contact",
+      "requiresHumanReview": false,
+      "sourceIds": [
+        "PUB-01"
+      ],
+      "contentHash": "9cdfcb13a2f2971edde84cb19d9cc97027ecd8ab9f42231dc947cf072ce00c38",
+      "locale": "ja-JP",
+      "asOf": "2026-09-19",
+      "key": "contact.website"
+    },
+    {
+      "requiresHumanReview": false,
+      "evidenceState": "official_site_observed",
+      "expiresAt": null,
+      "locale": "ja-JP",
+      "contentHash": "e17f64eca9d6b9bdbd4ebe390a9f6af56cb567ff4171b24775ea0a7ba8dedebc",
+      "knowledgeId": "COR-K-009",
+      "asOf": "2026-09-19",
+      "answerType": "fact",
+      "revision": 1,
+      "value": {
+        "channel": "Cloudia（AIチャット）",
+        "url": "https://cor-jp.com/contact/"
+      },
+      "category": "contact",
+      "sourceIds": [
+        "PUB-04"
+      ],
+      "key": "contact.web_inquiry",
+      "keywords": [
+        "Web問い合わせ",
+        "contact"
+      ],
+      "title": "Web問い合わせ",
+      "answerJa": "公式サイトのお問い合わせページにあるCloudiaからもご相談いただけます。"
+    },
+    {
+      "requiresHumanReview": false,
+      "expiresAt": null,
+      "revision": 1,
+      "contentHash": "b5783da6e86989bccbffcc3e57e18a4393ce412ca2463fca3ff0e248f760f3e3",
+      "category": "contact",
+      "keywords": [
+        "Webチャットの言語",
+        "contact"
+      ],
+      "answerJa": "Webの相談チャットCloudiaは、日本語と英語に対応しています。",
+      "answerType": "fact",
+      "key": "contact.cloudia_languages",
+      "knowledgeId": "COR-K-010",
+      "evidenceState": "official_site_observed",
+      "sourceIds": [
+        "PUB-04"
+      ],
+      "title": "Webチャットの言語",
+      "asOf": "2026-09-19",
+      "value": {
+        "languages": [
+          "ja",
+          "en"
+        ],
+        "channel": "web_chat"
+      },
+      "locale": "ja-JP"
+    },
+    {
+      "contentHash": "456cabf6160334233efd828dac9d864b2897ad5dce7bb705144b62a1d431ee73",
+      "evidenceState": "official_site_observed",
+      "answerType": "fact",
+      "expiresAt": null,
+      "category": "contact",
+      "keywords": [
+        "Web問い合わせの連絡目安",
+        "contact"
+      ],
+      "key": "contact.web_response_target",
+      "asOf": "2026-09-19",
+      "requiresHumanReview": false,
+      "answerJa": "Webでいただいたご相談は、内容を確認のうえ原則3営業日以内にご連絡する案内です。",
+      "value": {
+        "qualifier": "原則",
+        "business_days": 3,
+        "channel": "web_inquiry"
+      },
+      "sourceIds": [
+        "PUB-04"
+      ],
+      "knowledgeId": "COR-K-011",
+      "locale": "ja-JP",
+      "revision": 1,
+      "title": "Web問い合わせの連絡目安"
+    },
+    {
+      "revision": 1,
+      "key": "contact.meeting_request",
+      "keywords": [
+        "contact",
+        "打ち合わせの申込み"
+      ],
+      "answerJa": "お問い合わせページの公開スケジュールをご参照いただくか、Cloudiaでご希望をお知らせください。",
+      "locale": "ja-JP",
+      "asOf": "2026-09-19",
+      "sourceIds": [
+        "PUB-04"
+      ],
+      "contentHash": "4874001aa03a844385aaad33960b05760e4169e74039453c58142319b5327b52",
+      "category": "contact",
+      "requiresHumanReview": false,
+      "knowledgeId": "COR-K-012",
+      "title": "打ち合わせの申込み",
+      "answerType": "fact",
+      "evidenceState": "official_site_observed",
+      "value": {
+        "entrypoint": "https://cor-jp.com/contact/",
+        "has_public_schedule_link": true
+      },
+      "expiresAt": null
+    },
+    {
+      "expiresAt": null,
+      "title": "機密データAI活用診断",
+      "value": {
+        "service": "機密データAI活用診断"
+      },
+      "answerType": "fact",
+      "evidenceState": "official_site_observed",
+      "requiresHumanReview": false,
+      "knowledgeId": "COR-K-014",
+      "sourceIds": [
+        "PUB-01"
+      ],
+      "answerJa": "扱う情報と業務上の課題を整理し、AI活用の進め方をご相談いただけます。",
+      "contentHash": "c4f60fb75b3b775f07154c493cbed7af188a5b6f8880b7465bc41c84d64fed1e",
+      "locale": "ja-JP",
+      "keywords": [
+        "service",
+        "機密データAI活用診断"
+      ],
+      "category": "service",
+      "asOf": "2026-09-19",
+      "revision": 1,
+      "key": "service.assessment"
+    },
+    {
+      "keywords": [
+        "service",
+        "ローカルLLM・セキュアAI PoC"
+      ],
+      "expiresAt": null,
+      "answerJa": "機密度に応じたAIの使い分けや、小さく試すPoCのご相談を承ります。",
+      "answerType": "fact",
+      "category": "service",
+      "key": "service.local_llm",
+      "evidenceState": "official_site_observed",
+      "revision": 1,
+      "contentHash": "424c8b6ba198391199f722d1fcd29b064548602531d7684267fd5a6947e59b52",
+      "asOf": "2026-09-19",
+      "requiresHumanReview": false,
+      "locale": "ja-JP",
+      "knowledgeId": "COR-K-015",
+      "sourceIds": [
+        "PUB-01",
+        "PUB-03"
+      ],
+      "title": "ローカルLLM・セキュアAI PoC",
+      "value": {
+        "service": "ローカルLLM / セキュアAI PoC"
+      }
+    },
+    {
+      "expiresAt": null,
+      "asOf": "2026-09-19",
+      "contentHash": "3d6eb3699f0818205407824cd828fb7cb5a3b4cf34df7f0b50dd4a2bf6cb585e",
+      "answerType": "fact",
+      "sourceIds": [
+        "PUB-01"
+      ],
+      "revision": 1,
+      "knowledgeId": "COR-K-016",
+      "requiresHumanReview": false,
+      "keywords": [
+        "AI基盤構築・受託開発",
+        "service"
+      ],
+      "title": "AI基盤構築・受託開発",
+      "answerJa": "AIを業務システムに組み込む開発や、運用を見据えた基盤づくりをご相談いただけます。",
+      "evidenceState": "official_site_observed",
+      "value": {
+        "service": "AI基盤構築・AI受託開発"
+      },
+      "locale": "ja-JP",
+      "category": "service",
+      "key": "service.contract_dev"
+    },
+    {
+      "answerType": "fact",
+      "evidenceState": "official_site_observed",
+      "key": "service.training",
+      "knowledgeId": "COR-K-017",
+      "locale": "ja-JP",
+      "sourceIds": [
+        "PUB-03",
+        "PUB-04"
+      ],
+      "requiresHumanReview": false,
+      "contentHash": "a2ff78606c44bdcb6473742a29696cdc791485b7fdb48ff45124a731c9fa7c88",
+      "revision": 1,
+      "title": "AI顧問・研修・内製化支援",
+      "asOf": "2026-09-19",
+      "category": "service",
+      "keywords": [
+        "AI顧問・研修・内製化支援",
+        "service"
+      ],
+      "value": {
+        "topics": [
+          "AI導入支援",
+          "AI顧問",
+          "研修"
+        ]
+      },
+      "expiresAt": null,
+      "answerJa": "AIの導入方針や、社内で使うための研修についてもご相談を承ります。"
+    },
+    {
+      "evidenceState": "official_site_observed",
+      "locale": "ja-JP",
+      "title": "AI受付・チャットの導入相談",
+      "expiresAt": null,
+      "key": "service.voice_reception",
+      "knowledgeId": "COR-K-018",
+      "value": {
+        "scope": "音声受付・チャットの設計開発相談"
+      },
+      "answerType": "fact",
+      "answerJa": "音声やチャットを使う案内システムの導入について、ご用件を伺います。",
+      "keywords": [
+        "AI受付・チャットの導入相談",
+        "service"
+      ],
+      "requiresHumanReview": false,
+      "sourceIds": [
+        "PUB-01"
+      ],
+      "category": "service",
+      "revision": 1,
+      "contentHash": "3eaf41d403213e85a999fe0e643850c420e428e419622964b2d88b20396aac46",
+      "asOf": "2026-09-19"
+    },
+    {
+      "key": "service.cloud_migration",
+      "requiresHumanReview": false,
+      "sourceIds": [
+        "PUB-08"
+      ],
+      "contentHash": "5d1140f06e09a04b6c552c79b20a04690a63d7f9416b36d2a29a895739611ddd",
+      "category": "service",
+      "evidenceState": "official_site_observed",
+      "title": "基幹システムの移行",
+      "locale": "ja-JP",
+      "answerJa": "既存システムやデータの整理、クラウドへの移行についてご相談いただけます。",
+      "answerType": "fact",
+      "value": {
+        "scope": "既存業務を踏まえたクラウド移行支援"
+      },
+      "keywords": [
+        "service",
+        "基幹システムの移行"
+      ],
+      "knowledgeId": "COR-K-019",
+      "expiresAt": null,
+      "revision": 1,
+      "asOf": "2026-09-19"
+    },
+    {
+      "evidenceState": "official_site_observed",
+      "title": "診断の公開価格目安",
+      "requiresHumanReview": false,
+      "knowledgeId": "COR-K-020",
+      "value": {
+        "currency": "JPY",
+        "tax_inclusion": "unknown",
+        "max": 300000,
+        "binding_quote": false,
+        "min": 100000
+      },
+      "sourceIds": [
+        "PUB-01"
+      ],
+      "asOf": "2026-09-19",
+      "locale": "ja-JP",
+      "revision": 1,
+      "key": "price.assessment",
+      "category": "price",
+      "contentHash": "d3f07768d698c98f856eb739d1dc4c52ae91d7ab9993eb3ae0df4214e55ba1b1",
+      "expiresAt": null,
+      "answerJa": "Web掲載の診断費用の目安は10万から30万円です。対象範囲や税の扱いを含め、正式には個別にご案内します。",
+      "answerType": "fact",
+      "keywords": [
+        "price",
+        "診断の公開価格目安"
+      ]
+    },
+    {
+      "contentHash": "bc554e69407b5bbc7b0360926841014cc56d6bfae69210d1c5d22998457bab5f",
+      "title": "PoCの公開費用・期間目安",
+      "key": "price.poc",
+      "asOf": "2026-09-19",
+      "expiresAt": null,
+      "value": {
+        "indicative_months": 3,
+        "binding_quote": false,
+        "tax_inclusion": "unknown",
+        "currency": "JPY",
+        "starting_price": 3000000
+      },
+      "locale": "ja-JP",
+      "requiresHumanReview": false,
+      "category": "price",
+      "keywords": [
+        "PoCの公開費用・期間目安",
+        "price"
+      ],
+      "answerJa": "WebにはPoCの目安として3か月、300万円からと掲載しています。内容に応じて正式なお見積もりをご案内します。",
+      "sourceIds": [
+        "PUB-01"
+      ],
+      "answerType": "fact",
+      "evidenceState": "official_site_observed",
+      "knowledgeId": "COR-K-021",
+      "revision": 1
+    },
+    {
+      "title": "正式な費用・納期",
+      "locale": "ja-JP",
+      "value": {
+        "binding_quote": false,
+        "determined_by": "要件・個別契約"
+      },
+      "expiresAt": null,
+      "asOf": "2026-09-19",
+      "key": "price.custom_estimate",
+      "requiresHumanReview": false,
+      "contentHash": "ae58ea1590d7935001e50cb782709f7429542824e2d267a80ce3c2b1f4e987e5",
+      "evidenceState": "official_site_observed",
+      "knowledgeId": "COR-K-022",
+      "revision": 1,
+      "sourceIds": [
+        "PUB-05",
+        "PUB-07"
+      ],
+      "category": "price",
+      "answerJa": "正式な費用や納期は、ご要件を確認したうえで担当者からご案内します。",
+      "answerType": "fact",
+      "keywords": [
+        "price",
+        "正式な費用・納期"
+      ]
+    },
+    {
+      "evidenceState": "official_site_observed",
+      "locale": "ja-JP",
+      "contentHash": "d6d8e375bdb1155895819d2eab5bd72c66deb80c4d95ae0f1c290fa361e3f3bd",
+      "sourceIds": [
+        "PUB-05"
+      ],
+      "title": "付随費用",
+      "value": {
+        "may_include": [
+          "税",
+          "振込手数料",
+          "サーバー・ドメイン等の実費"
+        ]
+      },
+      "revision": 1,
+      "requiresHumanReview": false,
+      "knowledgeId": "COR-K-023",
+      "category": "price",
+      "asOf": "2026-09-19",
+      "key": "price.extra_costs",
+      "answerType": "fact",
+      "expiresAt": null,
+      "answerJa": "開発費以外の実費などが生じる場合は、見積もり時に確認する扱いです。",
+      "keywords": [
+        "price",
+        "付随費用"
+      ]
+    },
+    {
+      "asOf": "2026-09-19",
+      "evidenceState": "official_site_observed",
+      "value": {
+        "published_methods": [
+          "クレジットカード決済（Stripe）",
+          "銀行振込"
+        ]
+      },
+      "expiresAt": null,
+      "key": "contract.payment_method",
+      "contentHash": "7613e208d2f161603935b922ec2daaba38a93d409f4ff0f6dd52d65612e90de1",
+      "title": "支払方法",
+      "keywords": [
+        "contract",
+        "支払方法"
+      ],
+      "answerJa": "Webにはカード決済と銀行振込の案内があります。ご契約で利用できる方法は担当者に確認します。",
+      "requiresHumanReview": false,
+      "category": "contract",
+      "knowledgeId": "COR-K-024",
+      "sourceIds": [
+        "PUB-05"
+      ],
+      "revision": 1,
+      "locale": "ja-JP",
+      "answerType": "fact"
+    },
+    {
+      "revision": 1,
+      "title": "支払時期の公開案内",
+      "locale": "ja-JP",
+      "value": {
+        "advance_payment_possible": true,
+        "contract_override": true,
+        "published_default": "納品月末締め・翌月末払い"
+      },
+      "requiresHumanReview": false,
+      "answerJa": "支払時期や着手金の有無は、ご契約内容に応じて担当者からご案内します。",
+      "answerType": "fact",
+      "keywords": [
+        "contract",
+        "支払時期の公開案内"
+      ],
+      "sourceIds": [
+        "PUB-05"
+      ],
+      "contentHash": "58a72208855a14e278f0dfcc231df9978b7a71b920c48359ee0bf60289d27d58",
+      "category": "contract",
+      "knowledgeId": "COR-K-025",
+      "evidenceState": "official_site_observed",
+      "key": "contract.payment_timing",
+      "asOf": "2026-09-19",
+      "expiresAt": null
+    },
+    {
+      "key": "contract.cancel_refund",
+      "value": {
+        "requires_contract_review": true
+      },
+      "requiresHumanReview": true,
+      "expiresAt": null,
+      "title": "キャンセル・返金の取扱い",
+      "revision": 1,
+      "asOf": "2026-09-19",
+      "category": "contract",
+      "keywords": [
+        "contract",
+        "キャンセル・返金の取扱い"
+      ],
+      "contentHash": "62cf1ab6691d1789b3436cda84c22691b6ed64e9bea7e61b67b0fa1f44f9908d",
+      "answerJa": "キャンセルや返金については契約内容の確認が必要です。ご事情を伺い、担当者へ引き継ぎます。",
+      "knowledgeId": "COR-K-026",
+      "sourceIds": [
+        "PUB-05"
+      ],
+      "locale": "ja-JP",
+      "answerType": "fact",
+      "evidenceState": "official_site_observed"
+    },
+    {
+      "locale": "ja-JP",
+      "contentHash": "8b954796a10a373c5758d20c1b26d7f917034585c7e324402527630fde3e289a",
+      "asOf": "2026-09-19",
+      "title": "不具合対応の条件",
+      "value": {
+        "requires_contract_review": true
+      },
+      "key": "contract.warranty",
+      "sourceIds": [
+        "PUB-05"
+      ],
+      "answerType": "fact",
+      "category": "contract",
+      "knowledgeId": "COR-K-027",
+      "answerJa": "不具合の内容とご契約を確認する必要があります。対象システムと状況をお聞かせください。",
+      "evidenceState": "official_site_observed",
+      "keywords": [
+        "contract",
+        "不具合対応の条件"
+      ],
+      "requiresHumanReview": true,
+      "revision": 1,
+      "expiresAt": null
+    },
+    {
+      "revision": 1,
+      "value": {
+        "purpose": "受託開発の参考見積と根拠整理",
+        "human_final_decision": true,
+        "name": "Grift"
+      },
+      "requiresHumanReview": false,
+      "title": "Griftとは",
+      "asOf": "2026-09-19",
+      "sourceIds": [
+        "PUB-07"
+      ],
+      "locale": "ja-JP",
+      "contentHash": "71674945cdfbd411ff9cbf8a312c425039cfe4aa89e4c56a76caf090e6b14266",
+      "keywords": [
+        "Griftとは",
+        "grift",
+        "product"
+      ],
+      "evidenceState": "official_site_observed",
+      "answerJa": "Griftは、開発実績や案件の前提を使って、参考見積とその根拠を整理するAI見積支援ツールです。",
+      "answerType": "fact",
+      "category": "product",
+      "key": "grift.overview",
+      "knowledgeId": "COR-K-028",
+      "expiresAt": null
+    },
+    {
+      "title": "Griftの対象",
+      "evidenceState": "official_site_observed",
+      "sourceIds": [
+        "PUB-07"
+      ],
+      "value": {
+        "also": [
+          "フリーランスの提案準備",
+          "発注側の見積確認"
+        ],
+        "primary_target": "2〜10人の受託開発チーム"
+      },
+      "answerType": "fact",
+      "locale": "ja-JP",
+      "knowledgeId": "COR-K-029",
+      "key": "grift.target",
+      "requiresHumanReview": false,
+      "expiresAt": null,
+      "category": "product",
+      "keywords": [
+        "Griftの対象",
+        "grift",
+        "product"
+      ],
+      "answerJa": "主に受託開発チーム向けで、提案準備や発注側の見積確認についても相談いただけます。",
+      "contentHash": "26030f6223303b1c564d751c31feddf3e0cfc87b601d32dcc9ad9dc98516f9bd",
+      "asOf": "2026-09-19",
+      "revision": 1
+    },
+    {
+      "keywords": [
+        "Griftの提供段階",
+        "grift",
+        "product"
+      ],
+      "answerJa": "現在はTeam Betaとして提供範囲を検証しています。利用方法は個別にご案内します。",
+      "evidenceState": "official_site_observed",
+      "answerType": "fact",
+      "category": "product",
+      "contentHash": "fa51c69725312d13923c9b7f43fa4d58d984fae923d1f6d0fe7baa95b69ff889",
+      "sourceIds": [
+        "PUB-07"
+      ],
+      "revision": 1,
+      "locale": "ja-JP",
+      "requiresHumanReview": false,
+      "title": "Griftの提供段階",
+      "key": "grift.stage",
+      "value": {
+        "stage": "Team Beta",
+        "availability": "個別相談・提供範囲検証中"
+      },
+      "expiresAt": null,
+      "knowledgeId": "COR-K-030",
+      "asOf": "2026-09-19"
+    },
+    {
+      "category": "product",
+      "sourceIds": [
+        "PUB-07"
+      ],
+      "knowledgeId": "COR-K-031",
+      "answerJa": "Griftの案内は公式ページで確認いただけます。",
+      "keywords": [
+        "Griftの案内先",
+        "grift",
+        "product"
+      ],
+      "key": "grift.website",
+      "title": "Griftの案内先",
+      "asOf": "2026-09-19",
+      "revision": 1,
+      "value": {
+        "url": "https://griftai.org/"
+      },
+      "expiresAt": null,
+      "requiresHumanReview": false,
+      "locale": "ja-JP",
+      "answerType": "fact",
+      "contentHash": "992e17b0bfd93b2e99d3395a0bd4e475904aa7c9f768ed1bb52e961f69075e85",
+      "evidenceState": "official_site_observed"
+    },
+    {
+      "value": {
+        "starting_price": 50000,
+        "individual_guidance": true,
+        "tax_inclusion": "unknown",
+        "period": "month",
+        "currency": "JPY"
+      },
+      "asOf": "2026-09-19",
+      "title": "Grift Team Betaの公開価格",
+      "revision": 1,
+      "locale": "ja-JP",
+      "category": "price",
+      "knowledgeId": "COR-K-032",
+      "keywords": [
+        "Grift Team Betaの公開価格",
+        "grift",
+        "price"
+      ],
+      "answerJa": "掲載目安はTeam Betaが月額5万円からです。正式な条件は個別にご案内します。",
+      "sourceIds": [
+        "PUB-07"
+      ],
+      "requiresHumanReview": false,
+      "contentHash": "08bac751afeab82e7c5b411dcf91e71d7713177843cd1145fc407d5bc6c058d5",
+      "evidenceState": "official_site_observed",
+      "key": "grift.price.team_beta",
+      "answerType": "fact",
+      "expiresAt": null
+    },
+    {
+      "knowledgeId": "COR-K-033",
+      "expiresAt": null,
+      "title": "Grift Paid Trialの公開価格",
+      "value": {
+        "period_months": 3,
+        "currency": "JPY",
+        "individual_guidance": true,
+        "starting_price": 150000,
+        "tax_inclusion": "unknown"
+      },
+      "evidenceState": "official_site_observed",
+      "locale": "ja-JP",
+      "asOf": "2026-09-19",
+      "answerType": "fact",
+      "key": "grift.price.paid_trial",
+      "keywords": [
+        "Grift Paid Trialの公開価格",
+        "grift",
+        "price"
+      ],
+      "sourceIds": [
+        "PUB-07"
+      ],
+      "answerJa": "掲載目安はPaid Trialが3か月15万円からです。適用条件は担当者に確認します。",
+      "requiresHumanReview": false,
+      "category": "price",
+      "revision": 1,
+      "contentHash": "b697da6da302467d764395e338a157216fefcc5c064f043594a99f83c2a93684"
+    },
+    {
+      "requiresHumanReview": false,
+      "title": "Grift Estimate Auditの公開価格",
+      "locale": "ja-JP",
+      "value": {
+        "currency": "JPY",
+        "tax_inclusion": "unknown",
+        "starting_price": 1000000,
+        "individual_guidance": true
+      },
+      "contentHash": "7babc32239d86bcd627a2fe203f89e02bfb0c4149bbeec27ccd237ba0579de06",
+      "evidenceState": "official_site_observed",
+      "sourceIds": [
+        "PUB-07"
+      ],
+      "revision": 1,
+      "asOf": "2026-09-19",
+      "category": "price",
+      "knowledgeId": "COR-K-034",
+      "answerType": "fact",
+      "expiresAt": null,
+      "answerJa": "Estimate Auditの掲載目安は100万円からで、範囲や条件は個別のご案内です。",
+      "key": "grift.price.audit",
+      "keywords": [
+        "Grift Estimate Auditの公開価格",
+        "grift",
+        "price"
+      ]
+    },
+    {
+      "asOf": "2026-09-19",
+      "expiresAt": null,
+      "contentHash": "4acbe3747ce3e2eda85c814116d9da412689dcc5a5e0c49c4b6778753eeda97a",
+      "locale": "ja-JP",
+      "revision": 1,
+      "evidenceState": "official_site_observed",
+      "key": "security.isms",
+      "knowledgeId": "COR-K-035",
+      "requiresHumanReview": false,
+      "keywords": [
+        "ISMS認証の公開説明",
+        "security"
+      ],
+      "sourceIds": [
+        "PUB-03"
+      ],
+      "answerJa": "現在の公開案内では、ISO/IEC 27001認証の取得に向けてISMS運用を整備中としています。最新の証明が必要な場合は担当者に確認します。",
+      "value": {
+        "publicly_described_status": "認証取得を目標にISMS運用を整備中",
+        "certification_evidence_verified": false
+      },
+      "answerType": "fact",
+      "category": "security",
+      "title": "ISMS認証の公開説明"
+    },
+    {
+      "value": {
+        "controls": [
+          "入力範囲",
+          "権限",
+          "ログ",
+          "人間承認",
+          "保存・削除"
+        ]
+      },
+      "asOf": "2026-09-19",
+      "title": "AI利用とデータ境界",
+      "expiresAt": null,
+      "knowledgeId": "COR-K-036",
+      "requiresHumanReview": false,
+      "answerType": "fact",
+      "revision": 1,
+      "sourceIds": [
+        "PUB-03"
+      ],
+      "key": "security.data_boundary",
+      "locale": "ja-JP",
+      "keywords": [
+        "AI利用とデータ境界",
+        "security"
+      ],
+      "evidenceState": "official_site_observed",
+      "answerJa": "扱う情報の機密度に合わせ、入力範囲や権限、人間の確認などを含めて設計します。",
+      "contentHash": "29f275e66f78496f3492e944c9f8aee0f828dbea5d37599dae3a602be30559f6",
+      "category": "security"
+    },
+    {
+      "locale": "ja-JP",
+      "value": {
+        "subject_identity_verification_required": true,
+        "entrypoint": "https://cor-jp.com/privacy/"
+      },
+      "asOf": "2026-09-19",
+      "title": "個人情報に関する相談",
+      "expiresAt": null,
+      "contentHash": "6bb9794fd4d1254bab87c224a4551d4b692d8b6f12bfcb552ffa5ed4750f76b0",
+      "answerType": "fact",
+      "evidenceState": "official_site_observed",
+      "requiresHumanReview": true,
+      "category": "privacy",
+      "answerJa": "個人情報に関するご相談は所定の窓口へ引き継ぎます。ご本人確認が必要な手続きは、担当者から案内します。",
+      "sourceIds": [
+        "PUB-06"
+      ],
+      "keywords": [
+        "privacy",
+        "個人情報に関する相談"
+      ],
+      "knowledgeId": "COR-K-037",
+      "revision": 1,
+      "key": "privacy.inquiry"
+    },
+    {
+      "requiresHumanReview": false,
+      "revision": 1,
+      "asOf": "2026-09-19",
+      "sourceIds": [
+        "PUB-08"
+      ],
+      "answerJa": "公開サイトではAI基盤やクラウド移行などの事例を、機密情報を伏せて紹介しています。",
+      "keywords": [
+        "portfolio",
+        "公開事例の範囲"
+      ],
+      "key": "portfolio.public_cases",
+      "category": "portfolio",
+      "knowledgeId": "COR-K-039",
+      "answerType": "fact",
+      "contentHash": "94ce62bc9ce8616d628ed4e7ddf5dd7df49da5e01acf28336e12c684dfc9014a",
+      "evidenceState": "official_site_observed",
+      "expiresAt": null,
+      "locale": "ja-JP",
+      "value": {
+        "public_examples": [
+          "生成AI SaaS基盤",
+          "アンケート分析基盤",
+          "クラウド移行",
+          "建築図面PoC"
+        ],
+        "customer_names_redacted": true
+      },
+      "title": "公開事例の範囲"
+    },
+    {
+      "revision": 1,
+      "title": "Engineer Cafe Navigator",
+      "expiresAt": null,
+      "answerType": "fact",
+      "value": {
+        "name": "Engineer Cafe Navigator",
+        "type": "公開OSSのAI案内システム"
+      },
+      "answerJa": "施設情報への質問に対話で答えるEngineer Cafe Navigatorを、公開実績として紹介しています。",
+      "keywords": [
+        "Engineer Cafe Navigator",
+        "portfolio"
+      ],
+      "evidenceState": "official_site_observed",
+      "contentHash": "c7bb6ec25c1e853c66e711f738ee5b1b4462087aa26f3973f27583e9afa0f781",
+      "category": "portfolio",
+      "key": "portfolio.ecn",
+      "knowledgeId": "COR-K-040",
+      "sourceIds": [
+        "PUB-08"
+      ],
+      "locale": "ja-JP",
+      "requiresHumanReview": false,
+      "asOf": "2026-09-19"
+    },
+    {
+      "answerType": "fact",
+      "evidenceState": "not_confirmed",
+      "contentHash": "af014d7dfed1ecada9463b0e529bd4b7d5b1cd154c826ad2dc6dea17b5be6aed",
+      "locale": "ja-JP",
+      "title": "社名・製品名の読み",
+      "requiresHumanReview": true,
+      "expiresAt": null,
+      "value": {},
+      "answerJa": null,
+      "keywords": [
+        "company",
+        "社名・製品名の読み"
+      ],
+      "category": "company",
+      "key": "company.pronunciation",
+      "revision": 1,
+      "knowledgeId": "COR-K-041",
+      "asOf": "2026-09-19",
+      "sourceIds": [
+        "USR-01"
+      ]
+    },
+    {
+      "answerType": "fact",
+      "title": "営業時間",
+      "locale": "ja-JP",
+      "contentHash": "6f18b69620bd54a1a79f9fe2ef9b27821573d84be3adb001fdd81c60434119ac",
+      "revision": 1,
+      "value": {},
+      "expiresAt": null,
+      "category": "hours",
+      "asOf": "2026-09-19",
+      "answerJa": "営業時間は現在この受付で確定情報を確認できないため、担当者に確認いたします。",
+      "keywords": [
+        "hours",
+        "営業時間"
+      ],
+      "evidenceState": "not_confirmed",
+      "sourceIds": [
+        "PUB-04"
+      ],
+      "requiresHumanReview": true,
+      "knowledgeId": "COR-K-042",
+      "key": "hours.business"
+    },
+    {
+      "expiresAt": null,
+      "title": "AI電話の受付時間",
+      "value": {},
+      "asOf": "2026-09-19",
+      "knowledgeId": "COR-K-043",
+      "sourceIds": [
+        "USR-01"
+      ],
+      "answerJa": null,
+      "requiresHumanReview": true,
+      "locale": "ja-JP",
+      "evidenceState": "not_confirmed",
+      "keywords": [
+        "AI電話の受付時間",
+        "hours"
+      ],
+      "category": "hours",
+      "answerType": "fact",
+      "contentHash": "b4c539ecf9c1a4071f1c0c4e09ef423cf3061e07159e23792f6ef762d9a78f7a",
+      "revision": 1,
+      "key": "hours.ai_reception"
+    },
+    {
+      "revision": 1,
+      "value": {},
+      "asOf": "2026-09-19",
+      "knowledgeId": "COR-K-044",
+      "title": "人間担当者の対応可能時間",
+      "evidenceState": "not_confirmed",
+      "answerJa": null,
+      "keywords": [
+        "hours",
+        "人間担当者の対応可能時間"
+      ],
+      "answerType": "fact",
+      "expiresAt": null,
+      "category": "hours",
+      "key": "hours.human",
+      "requiresHumanReview": true,
+      "locale": "ja-JP",
+      "sourceIds": [
+        "USR-01"
+      ],
+      "contentHash": "3286ad0f753debf3950f19616e32424fbf8ad9c1da7f55397f0d3fc1edae2d24"
+    },
+    {
+      "requiresHumanReview": true,
+      "knowledgeId": "COR-K-045",
+      "expiresAt": null,
+      "title": "電話折り返しの目標",
+      "evidenceState": "not_confirmed",
+      "asOf": "2026-09-19",
+      "key": "hours.phone_callback",
+      "value": {},
+      "answerType": "fact",
+      "revision": 1,
+      "sourceIds": [
+        "PUB-04",
+        "USR-02"
+      ],
+      "keywords": [
+        "hours",
+        "電話折り返しの目標"
+      ],
+      "contentHash": "f98e01dfb88e366ae19a0c26a4ef7db401c949ad9340511d416e725d44efe844",
+      "answerJa": "折り返しのご希望を伺い、担当者に共有します。時刻のお約束は確認が必要です。",
+      "category": "hours",
+      "locale": "ja-JP"
+    },
+    {
+      "knowledgeId": "COR-K-046",
+      "answerType": "fact",
+      "title": "AI受付番号と公表用途",
+      "asOf": "2026-09-19",
+      "expiresAt": null,
+      "value": {},
+      "requiresHumanReview": true,
+      "revision": 1,
+      "locale": "ja-JP",
+      "key": "contact.ai_phone",
+      "category": "contact",
+      "answerJa": null,
+      "evidenceState": "not_confirmed",
+      "sourceIds": [
+        "USR-01"
+      ],
+      "contentHash": "36afff99f866c6790ba7b4834bb42bcf8816edca99f61d20baa5e1a9dca9b10f",
+      "keywords": [
+        "AI受付番号と公表用途",
+        "contact"
+      ]
+    },
+    {
+      "category": "contact",
+      "keywords": [
+        "contact",
+        "正式な問い合わせメール"
+      ],
+      "answerJa": "公式サイトのお問い合わせページをご案内できます。",
+      "answerType": "fact",
+      "locale": "ja-JP",
+      "knowledgeId": "COR-K-047",
+      "key": "contact.email",
+      "revision": 1,
+      "sourceIds": [
+        "PUB-04",
+        "PUB-05"
+      ],
+      "contentHash": "f6b7723df872cf990f563e17cb2751c338911e308f7a0b93b7f43fad99c8fbd4",
+      "title": "正式な問い合わせメール",
+      "evidenceState": "not_confirmed",
+      "value": {},
+      "asOf": "2026-09-19",
+      "requiresHumanReview": true,
+      "expiresAt": null
+    },
+    {
+      "locale": "ja-JP",
+      "key": "human_gate.owner",
+      "sourceIds": [
+        "USR-02",
+        "AUD-01"
+      ],
+      "value": {},
+      "knowledgeId": "COR-K-048",
+      "title": "重要案件の担当責任者",
+      "contentHash": "c6ebbdbf0e8987180ecf5c2138d163758814c41f1c36f844864731bb75655bc0",
+      "answerJa": null,
+      "keywords": [
+        "human_gate",
+        "routing",
+        "重要案件の担当責任者"
+      ],
+      "answerType": "fact",
+      "requiresHumanReview": true,
+      "category": "routing",
+      "asOf": "2026-09-19",
+      "expiresAt": null,
+      "revision": 1,
+      "evidenceState": "not_confirmed"
+    },
+    {
+      "title": "受諾期限と時間外エスカレーション",
+      "locale": "ja-JP",
+      "revision": 1,
+      "value": {},
+      "knowledgeId": "COR-K-049",
+      "asOf": "2026-09-19",
+      "category": "routing",
+      "evidenceState": "not_confirmed",
+      "requiresHumanReview": true,
+      "key": "human_gate.ack",
+      "answerJa": null,
+      "expiresAt": null,
+      "keywords": [
+        "human_gate",
+        "routing",
+        "受諾期限と時間外エスカレーション"
+      ],
+      "answerType": "fact",
+      "contentHash": "7356ee3f4205c2c00c8d5007af74fa96e5f1f583c28cd5b91b067beccc91f73a",
+      "sourceIds": [
+        "USR-02",
+        "AUD-01"
+      ]
+    },
+    {
+      "category": "privacy",
+      "sourceIds": [
+        "PUB-06",
+        "USR-03"
+      ],
+      "knowledgeId": "COR-K-050",
+      "answerJa": null,
+      "evidenceState": "not_confirmed",
+      "locale": "ja-JP",
+      "keywords": [
+        "privacy",
+        "通話のAI・録音・文字起こし案内"
+      ],
+      "key": "privacy.call_notice",
+      "revision": 1,
+      "expiresAt": null,
+      "requiresHumanReview": true,
+      "title": "通話のAI・録音・文字起こし案内",
+      "asOf": "2026-09-19",
+      "value": {},
+      "answerType": "fact",
+      "contentHash": "9b36aa8d31f4f6e60ea31bbf7ec7de62de1dd0c87f0a18ac484dec9596a0b261"
+    },
+    {
+      "locale": "ja-JP",
+      "sourceIds": [
+        "PUB-03",
+        "PUB-06",
+        "USR-03"
+      ],
+      "contentHash": "7773311aa12e651ae47ceef5b8889c03716b1f0fecb2c12194478992e7e2da10",
+      "knowledgeId": "COR-K-051",
+      "revision": 1,
+      "key": "privacy.retention",
+      "asOf": "2026-09-19",
+      "answerType": "fact",
+      "requiresHumanReview": true,
+      "keywords": [
+        "privacy",
+        "通話データの保存期間"
+      ],
+      "answerJa": null,
+      "value": {},
+      "evidenceState": "not_confirmed",
+      "expiresAt": null,
+      "category": "privacy",
+      "title": "通話データの保存期間"
+    },
+    {
+      "answerType": "fact",
+      "requiresHumanReview": true,
+      "knowledgeId": "COR-K-052",
+      "asOf": "2026-09-19",
+      "locale": "ja-JP",
+      "sourceIds": [
+        "PUB-03",
+        "USR-03",
+        "AUD-01"
+      ],
+      "title": "外部AI処理の許可範囲",
+      "evidenceState": "not_confirmed",
+      "value": {},
+      "revision": 1,
+      "contentHash": "5fbd4f267f511a51e14b736b74eafc515f4a22dccc7f3a6e95f3bba5edb24135",
+      "category": "privacy",
+      "keywords": [
+        "privacy",
+        "外部AI処理の許可範囲"
+      ],
+      "key": "privacy.external_ai",
+      "expiresAt": null,
+      "answerJa": null
+    },
+    {
+      "answerType": "fact",
+      "knowledgeId": "COR-K-053",
+      "sourceIds": [
+        "PUB-01",
+        "PUB-05",
+        "PUB-07"
+      ],
+      "locale": "ja-JP",
+      "evidenceState": "not_confirmed",
+      "title": "公開価格の税区分",
+      "value": {},
+      "revision": 1,
+      "expiresAt": null,
+      "asOf": "2026-09-19",
+      "requiresHumanReview": true,
+      "category": "price",
+      "contentHash": "bb3d28376d14c347842d8128a981ca4288e0cb0524755bef22e5cb9315af8d22",
+      "keywords": [
+        "price",
+        "公開価格の税区分"
+      ],
+      "answerJa": null,
+      "key": "price.tax"
+    },
+    {
+      "evidenceState": "not_confirmed",
+      "requiresHumanReview": true,
+      "sourceIds": [
+        "USR-01"
+      ],
+      "key": "sales.recruiting_status",
+      "knowledgeId": "COR-K-054",
+      "locale": "ja-JP",
+      "answerType": "fact",
+      "keywords": [
+        "sales",
+        "service",
+        "採用募集の現在状況"
+      ],
+      "answerJa": "採用に関するご連絡として、ご用件を担当者に共有します。",
+      "value": {},
+      "asOf": "2026-09-19",
+      "expiresAt": null,
+      "title": "採用募集の現在状況",
+      "category": "service",
+      "contentHash": "1f6d400cb5b84a39026ed7d93cee95356bf35c7492dbd429eeac29de13c70a15",
+      "revision": 1
+    }
+  ],
+  "sources": [
+    {
+      "createdBy": "terada-approved-2026-09-19",
+      "sourceType": "prior_audit",
+      "updatedBy": "terada-approved-2026-09-19",
+      "recordVersion": 1,
+      "publishedOn": "2026-09-19",
+      "publicationCaveat": null,
+      "schemaVersion": 1,
+      "checkedOn": "2026-09-19",
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "sourceId": "AUD-01",
+      "updatedAt": "2026-09-19T00:41:50.111Z",
+      "observation": "本チャットの添付。署名、ライフサイクル、ActionGate、重要案件、人間受諾、知識・Jevの修正要求。",
+      "deletedAt": null,
+      "title": "前回修正指示書 FIX_INSTRUCTIONS.md",
+      "url": null
+    },
+    {
+      "title": "既存管理API",
+      "publishedOn": null,
+      "deletedAt": null,
+      "sourceId": "CODE-01",
+      "updatedAt": "2026-09-19T00:41:50.111Z",
+      "recordVersion": 1,
+      "checkedOn": "2026-09-19",
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "publicationCaveat": null,
+      "observation": "一覧/詳細、ops更新、Realtime設定、検証/空ログ一括削除。会社知識CRUDはない。",
+      "url": "https://github.com/Cor-Incorporated/speech-assistant-openai-realtime-api-node/blob/a1c621ce0e4334bc73e9140a6a785754ca103f1e/lib/admin-routes.js",
+      "updatedBy": "terada-approved-2026-09-19",
+      "schemaVersion": 1,
+      "sourceType": "repository",
+      "createdBy": "terada-approved-2026-09-19"
+    },
+    {
+      "publicationCaveat": null,
+      "deletedAt": null,
+      "updatedAt": "2026-09-19T00:41:50.111Z",
+      "url": "https://github.com/Cor-Incorporated/speech-assistant-openai-realtime-api-node/blob/a1c621ce0e4334bc73e9140a6a785754ca103f1e/lib/call-log-store.js",
+      "observation": "既存Firestore正本、一覧上限200、非トランザクションops更新、空通話削除判定。",
+      "sourceId": "CODE-02",
+      "title": "既存通話ストア",
+      "updatedBy": "terada-approved-2026-09-19",
+      "sourceType": "repository",
+      "createdBy": "terada-approved-2026-09-19",
+      "schemaVersion": 1,
+      "publishedOn": null,
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "checkedOn": "2026-09-19",
+      "recordVersion": 1
+    },
+    {
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "schemaVersion": 1,
+      "checkedOn": "2026-09-19",
+      "updatedBy": "terada-approved-2026-09-19",
+      "recordVersion": 1,
+      "sourceType": "repository",
+      "title": "既存管理画面",
+      "publishedOn": null,
+      "createdBy": "terada-approved-2026-09-19",
+      "observation": "React/TypeScript/Vite/Tailwind。通話/対応/設定UIを拡張する。",
+      "publicationCaveat": null,
+      "sourceId": "CODE-03",
+      "deletedAt": null,
+      "url": "https://github.com/Cor-Incorporated/speech-assistant-openai-realtime-api-node/blob/a1c621ce0e4334bc73e9140a6a785754ca103f1e/client/src/App.tsx",
+      "updatedAt": "2026-09-19T00:41:50.111Z"
+    },
+    {
+      "deletedAt": null,
+      "observation": "callLogsの既存フィールドと原記録。保存失敗の観測、overlay保護が必要。",
+      "updatedAt": "2026-09-19T00:41:50.111Z",
+      "url": "https://github.com/Cor-Incorporated/speech-assistant-openai-realtime-api-node/blob/a1c621ce0e4334bc73e9140a6a785754ca103f1e/lib/call-log-sinks.js",
+      "updatedBy": "terada-approved-2026-09-19",
+      "title": "通話永続化処理",
+      "sourceType": "repository",
+      "publicationCaveat": null,
+      "createdBy": "terada-approved-2026-09-19",
+      "schemaVersion": 1,
+      "sourceId": "CODE-04",
+      "checkedOn": "2026-09-19",
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "publishedOn": null,
+      "recordVersion": 1
+    },
+    {
+      "sourceId": "MEM-01",
+      "updatedAt": "2026-09-19T00:41:50.111Z",
+      "deletedAt": null,
+      "schemaVersion": 1,
+      "observation": "研究/研修の相談履歴を候補として使用。設備台数、顧客名、案件額、個人事情を含めない。公開サービス確定情報ではない。",
+      "recordVersion": 1,
+      "createdBy": "terada-approved-2026-09-19",
+      "sourceType": "user_memory",
+      "publishedOn": null,
+      "updatedBy": "terada-approved-2026-09-19",
+      "url": null,
+      "publicationCaveat": null,
+      "title": "これまでの相談：ローカルLLM・AI駆動開発・Physical AI",
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "checkedOn": "2026-09-19"
+    },
+    {
+      "sourceType": "official_web",
+      "updatedAt": "2026-09-19T00:41:50.111Z",
+      "sourceId": "PUB-01",
+      "deletedAt": null,
+      "observation": "中核事業、対応領域、診断/PoC目安。サイト掲載の観測であり契約確約ではない。",
+      "publicationCaveat": null,
+      "title": "Cor.公式トップ",
+      "createdBy": "terada-approved-2026-09-19",
+      "recordVersion": 1,
+      "updatedBy": "terada-approved-2026-09-19",
+      "publishedOn": null,
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "checkedOn": "2026-09-19",
+      "schemaVersion": 1,
+      "url": "https://cor-jp.com/"
+    },
+    {
+      "sourceId": "PUB-02",
+      "createdBy": "terada-approved-2026-09-19",
+      "publishedOn": null,
+      "updatedBy": "terada-approved-2026-09-19",
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "sourceType": "official_web",
+      "checkedOn": "2026-09-19",
+      "recordVersion": 1,
+      "updatedAt": "2026-09-19T00:41:50.111Z",
+      "deletedAt": null,
+      "publicationCaveat": null,
+      "url": "https://cor-jp.com/about/",
+      "schemaVersion": 1,
+      "title": "Cor.会社紹介",
+      "observation": "企業の立ち位置・伴走方針。ヘッダーと本文のMission表現は統一確認が必要。"
+    },
+    {
+      "createdBy": "terada-approved-2026-09-19",
+      "updatedBy": "terada-approved-2026-09-19",
+      "publishedOn": "2026-07-01",
+      "url": "https://cor-jp.com/security/",
+      "sourceType": "official_web",
+      "checkedOn": "2026-09-19",
+      "sourceId": "PUB-03",
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "recordVersion": 1,
+      "updatedAt": "2026-09-19T00:41:50.111Z",
+      "deletedAt": null,
+      "observation": "取得を目標にISMS整備中という公開説明。認証取得済みの証明にはならない。",
+      "schemaVersion": 1,
+      "title": "Cor.セキュリティ方針",
+      "publicationCaveat": null
+    },
+    {
+      "updatedAt": "2026-09-19T00:41:50.111Z",
+      "sourceId": "PUB-04",
+      "deletedAt": null,
+      "observation": "所在地、Cloudia、Web問い合わせの原則3営業日以内という案内。電話SLAや営業時間は示さない。",
+      "schemaVersion": 1,
+      "sourceType": "official_web",
+      "title": "Cor.問い合わせ",
+      "recordVersion": 1,
+      "createdBy": "terada-approved-2026-09-19",
+      "publicationCaveat": null,
+      "updatedBy": "terada-approved-2026-09-19",
+      "url": "https://cor-jp.com/contact/",
+      "publishedOn": null,
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "checkedOn": "2026-09-19"
+    },
+    {
+      "createdBy": "terada-approved-2026-09-19",
+      "publishedOn": null,
+      "updatedBy": "terada-approved-2026-09-19",
+      "sourceType": "official_web",
+      "checkedOn": "2026-09-19",
+      "title": "Cor.特定商取引法表記",
+      "sourceId": "PUB-05",
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "publicationCaveat": null,
+      "updatedAt": "2026-09-19T00:41:50.111Z",
+      "schemaVersion": 1,
+      "deletedAt": null,
+      "observation": "代表、所在地、公表電話番号、個別契約条件。販売業者欄のドット省略は表記差として保持。",
+      "url": "https://cor-jp.com/legal/tokushoho/",
+      "recordVersion": 1
+    },
+    {
+      "createdBy": "terada-approved-2026-09-19",
+      "sourceId": "PUB-06",
+      "observation": "第0.3版・案との表示あり。通話データの保存・外部送信条件をこのページだけで確定しない。",
+      "updatedBy": "terada-approved-2026-09-19",
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "checkedOn": "2026-09-19",
+      "sourceType": "official_web",
+      "updatedAt": "2026-09-19T00:41:50.111Z",
+      "url": "https://cor-jp.com/privacy/",
+      "schemaVersion": 1,
+      "deletedAt": null,
+      "publicationCaveat": "public_draft",
+      "recordVersion": 1,
+      "publishedOn": "2026-07-17",
+      "title": "Cor.プライバシーポリシー"
+    },
+    {
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "checkedOn": "2026-09-19",
+      "publicationCaveat": null,
+      "observation": "Team Beta、参考見積、人間レビュー、料金目安。提供範囲・契約条件は個別確認。",
+      "updatedBy": "terada-approved-2026-09-19",
+      "url": "https://griftai.org/",
+      "createdBy": "terada-approved-2026-09-19",
+      "schemaVersion": 1,
+      "publishedOn": null,
+      "title": "Grift公式LP",
+      "deletedAt": null,
+      "sourceId": "PUB-07",
+      "recordVersion": 1,
+      "updatedAt": "2026-09-19T00:41:50.111Z",
+      "sourceType": "official_web"
+    },
+    {
+      "checkedOn": "2026-09-19",
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "updatedBy": "terada-approved-2026-09-19",
+      "sourceType": "official_web",
+      "observation": "公開匿名事例とEngineer Cafe Navigator。非公開案件の実名との紐付けは禁止。",
+      "createdBy": "terada-approved-2026-09-19",
+      "title": "Cor.公開実績",
+      "publishedOn": null,
+      "sourceId": "PUB-08",
+      "schemaVersion": 1,
+      "url": "https://cor-jp.com/works/",
+      "deletedAt": null,
+      "recordVersion": 1,
+      "publicationCaveat": null,
+      "updatedAt": "2026-09-19T00:41:50.111Z"
+    },
+    {
+      "publicationCaveat": null,
+      "publishedOn": null,
+      "deletedAt": null,
+      "title": "Cor.英語サイト",
+      "updatedAt": "2026-09-19T00:41:50.111Z",
+      "checkedOn": "2026-09-19",
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "schemaVersion": 1,
+      "sourceType": "official_web",
+      "observation": "英語表記・全国対応の公開説明。多言語サイトと電話多言語対応の実装は別。",
+      "updatedBy": "terada-approved-2026-09-19",
+      "url": "https://cor-jp.com/en/",
+      "sourceId": "PUB-09",
+      "recordVersion": 1,
+      "createdBy": "terada-approved-2026-09-19"
+    },
+    {
+      "checkedOn": "2026-09-19",
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "sourceId": "TECH-01",
+      "updatedBy": "terada-approved-2026-09-19",
+      "title": "Firestore transactions",
+      "observation": "版番号の比較と更新を同一トランザクションで行う。",
+      "createdBy": "terada-approved-2026-09-19",
+      "publishedOn": null,
+      "url": "https://firebase.google.com/docs/firestore/manage-data/transactions",
+      "sourceType": "vendor_docs",
+      "schemaVersion": 1,
+      "deletedAt": null,
+      "recordVersion": 1,
+      "updatedAt": "2026-09-19T00:41:50.111Z",
+      "publicationCaveat": null
+    },
+    {
+      "sourceType": "vendor_docs",
+      "updatedBy": "terada-approved-2026-09-19",
+      "observation": "親documentの削除ではsubcollectionは自動削除されない。",
+      "createdBy": "terada-approved-2026-09-19",
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "checkedOn": "2026-09-19",
+      "url": "https://firebase.google.com/docs/firestore/manage-data/delete-data",
+      "deletedAt": null,
+      "sourceId": "TECH-02",
+      "recordVersion": 1,
+      "updatedAt": "2026-09-19T00:41:50.111Z",
+      "publicationCaveat": null,
+      "title": "Firestore delete data",
+      "schemaVersion": 1,
+      "publishedOn": null
+    },
+    {
+      "publishedOn": null,
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "checkedOn": "2026-09-19",
+      "updatedBy": "terada-approved-2026-09-19",
+      "createdBy": "terada-approved-2026-09-19",
+      "title": "Firestore security",
+      "schemaVersion": 1,
+      "publicationCaveat": null,
+      "sourceId": "TECH-03",
+      "sourceType": "vendor_docs",
+      "deletedAt": null,
+      "recordVersion": 1,
+      "updatedAt": "2026-09-19T00:41:50.111Z",
+      "url": "https://firebase.google.com/docs/firestore/security/get-started",
+      "observation": "Server SDKはSecurity Rulesを迂回するためAPIの認可とIAMが必要。"
+    },
+    {
+      "recordVersion": 1,
+      "url": "https://docs.cloud.google.com/firestore/native/docs/storage-size",
+      "deletedAt": null,
+      "publicationCaveat": null,
+      "publishedOn": null,
+      "updatedAt": "2026-09-19T00:41:50.111Z",
+      "sourceType": "vendor_docs",
+      "schemaVersion": 1,
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "checkedOn": "2026-09-19",
+      "observation": "通常documentの1MiB制約。長いtranscript/turnsを別管理する。利用edition/SDKは着手時確認。",
+      "sourceId": "TECH-04",
+      "updatedBy": "terada-approved-2026-09-19",
+      "title": "Firestore size",
+      "createdBy": "terada-approved-2026-09-19"
+    },
+    {
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "observation": "業務tools・承認はbackend/app側。append ACKは発話・再生完了を保証しない。",
+      "schemaVersion": 1,
+      "checkedOn": "2026-09-19",
+      "sourceType": "vendor_docs",
+      "createdBy": "terada-approved-2026-09-19",
+      "publicationCaveat": null,
+      "updatedBy": "terada-approved-2026-09-19",
+      "recordVersion": 1,
+      "sourceId": "TECH-05",
+      "title": "OpenAI Live delegation",
+      "updatedAt": "2026-09-19T00:41:50.111Z",
+      "url": "https://developers.openai.com/api/docs/guides/live-delegation",
+      "publishedOn": null,
+      "deletedAt": null
+    },
+    {
+      "updatedAt": "2026-09-19T00:41:50.111Z",
+      "sourceType": "vendor_docs",
+      "deletedAt": null,
+      "schemaVersion": 1,
+      "observation": "用件判定の補助。会社知識の正本や操作認可機構にはしない。",
+      "recordVersion": 1,
+      "createdBy": "terada-approved-2026-09-19",
+      "url": "https://docs.typesafe.ai/patterns/intent-routing",
+      "updatedBy": "terada-approved-2026-09-19",
+      "title": "TypeSafe Intent Routing",
+      "publicationCaveat": null,
+      "publishedOn": null,
+      "sourceId": "TECH-06",
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "checkedOn": "2026-09-19"
+    },
+    {
+      "publicationCaveat": null,
+      "updatedAt": "2026-09-19T00:41:50.111Z",
+      "title": "OWASP CSRF",
+      "schemaVersion": 1,
+      "deletedAt": null,
+      "publishedOn": null,
+      "recordVersion": 1,
+      "createdBy": "terada-approved-2026-09-19",
+      "sourceType": "security_guidance",
+      "url": "https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html",
+      "updatedBy": "terada-approved-2026-09-19",
+      "observation": "ブラウザからの変更APIのCSRF防御。",
+      "sourceId": "TECH-07",
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "checkedOn": "2026-09-19"
+    },
+    {
+      "title": "OWASP Authorization",
+      "createdBy": "terada-approved-2026-09-19",
+      "publishedOn": null,
+      "updatedBy": "terada-approved-2026-09-19",
+      "url": "https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html",
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "publicationCaveat": null,
+      "sourceType": "security_guidance",
+      "checkedOn": "2026-09-19",
+      "updatedAt": "2026-09-19T00:41:50.111Z",
+      "sourceId": "TECH-08",
+      "schemaVersion": 1,
+      "deletedAt": null,
+      "recordVersion": 1,
+      "observation": "deny-by-default、APIごとの認可、最小権限。"
+    },
+    {
+      "title": "今回のユーザー指示",
+      "recordVersion": 1,
+      "observation": "2026年9月時点のCor.知識DBと、通話履歴・会社情報のCRUD管理UIの実装指示を作成する。",
+      "schemaVersion": 1,
+      "updatedAt": "2026-09-19T00:41:50.111Z",
+      "sourceType": "user_instruction",
+      "deletedAt": null,
+      "publicationCaveat": null,
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "checkedOn": "2026-09-19",
+      "publishedOn": "2026-09-19",
+      "createdBy": "terada-approved-2026-09-19",
+      "sourceId": "USR-01",
+      "url": null,
+      "updatedBy": "terada-approved-2026-09-19"
+    },
+    {
+      "updatedAt": "2026-09-19T00:41:50.111Z",
+      "observation": "高重要度・高緊急度の架電を人間へパスアップできるか重点確認するというユーザー要求。",
+      "title": "前ターン：重要度・緊急度と人間ゲート",
+      "url": null,
+      "deletedAt": null,
+      "sourceId": "USR-02",
+      "createdBy": "terada-approved-2026-09-19",
+      "sourceType": "user_instruction",
+      "recordVersion": 1,
+      "updatedBy": "terada-approved-2026-09-19",
+      "schemaVersion": 1,
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "publicationCaveat": null,
+      "publishedOn": null,
+      "checkedOn": "2026-09-19"
+    },
+    {
+      "observation": "実認証情報は出力しない。顧客実データは明示的な利用許可がなければ使用しない。本番書込・外部送信・push前に対象と内容を示す。",
+      "createdAt": "2026-09-19T00:41:50.111Z",
+      "publicationCaveat": null,
+      "checkedOn": "2026-09-19",
+      "url": null,
+      "createdBy": "terada-approved-2026-09-19",
+      "title": "ユーザー情報取扱ルール",
+      "updatedBy": "terada-approved-2026-09-19",
+      "recordVersion": 1,
+      "sourceType": "user_instruction",
+      "updatedAt": "2026-09-19T00:41:50.111Z",
+      "sourceId": "USR-03",
+      "schemaVersion": 1,
+      "deletedAt": null,
+      "publishedOn": null
+    }
+  ],
+  "inventory": [
+    {
+      "knowledgeId": "COR-K-001",
+      "key": "company.name",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-002",
+      "key": "company.english_name",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-003",
+      "key": "company.representative",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-004",
+      "key": "company.positioning",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-005",
+      "key": "company.working_approach",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-006",
+      "key": "company.address",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-007",
+      "key": "company.service_area",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-008",
+      "key": "contact.website",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-009",
+      "key": "contact.web_inquiry",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-010",
+      "key": "contact.cloudia_languages",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-011",
+      "key": "contact.web_response_target",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-012",
+      "key": "contact.meeting_request",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-013",
+      "key": "contact.listed_phone",
+      "state": "approved",
+      "audience": "admin_only",
+      "handling": "owner_review_required",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": null,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-014",
+      "key": "service.assessment",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-015",
+      "key": "service.local_llm",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-016",
+      "key": "service.contract_dev",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-017",
+      "key": "service.training",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-018",
+      "key": "service.voice_reception",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-019",
+      "key": "service.cloud_migration",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-020",
+      "key": "price.assessment",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-021",
+      "key": "price.poc",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-022",
+      "key": "price.custom_estimate",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-023",
+      "key": "price.extra_costs",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-024",
+      "key": "contract.payment_method",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-025",
+      "key": "contract.payment_timing",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-026",
+      "key": "contract.cancel_refund",
+      "state": "published",
+      "audience": "public",
+      "handling": "human_review_required",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-027",
+      "key": "contract.warranty",
+      "state": "published",
+      "audience": "public",
+      "handling": "human_review_required",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-028",
+      "key": "grift.overview",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-029",
+      "key": "grift.target",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-030",
+      "key": "grift.stage",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-031",
+      "key": "grift.website",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-032",
+      "key": "grift.price.team_beta",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-033",
+      "key": "grift.price.paid_trial",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-034",
+      "key": "grift.price.audit",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-035",
+      "key": "security.isms",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-036",
+      "key": "security.data_boundary",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-037",
+      "key": "privacy.inquiry",
+      "state": "published",
+      "audience": "public",
+      "handling": "human_review_required",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-038",
+      "key": "privacy.public_draft",
+      "state": "approved",
+      "audience": "admin_only",
+      "handling": "owner_review_required",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": null,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-039",
+      "key": "portfolio.public_cases",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-040",
+      "key": "portfolio.ecn",
+      "state": "published",
+      "audience": "public",
+      "handling": "answer_after_approval",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-041",
+      "key": "company.pronunciation",
+      "state": "published",
+      "audience": "public",
+      "handling": "owner_review_required",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-042",
+      "key": "hours.business",
+      "state": "published",
+      "audience": "public",
+      "handling": "owner_review_required",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-043",
+      "key": "hours.ai_reception",
+      "state": "published",
+      "audience": "public",
+      "handling": "owner_review_required",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-044",
+      "key": "hours.human",
+      "state": "published",
+      "audience": "public",
+      "handling": "owner_review_required",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-045",
+      "key": "hours.phone_callback",
+      "state": "published",
+      "audience": "public",
+      "handling": "owner_review_required",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-046",
+      "key": "contact.ai_phone",
+      "state": "published",
+      "audience": "public",
+      "handling": "owner_review_required",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-047",
+      "key": "contact.email",
+      "state": "published",
+      "audience": "public",
+      "handling": "owner_review_required",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-048",
+      "key": "human_gate.owner",
+      "state": "published",
+      "audience": "public",
+      "handling": "owner_review_required",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-049",
+      "key": "human_gate.ack",
+      "state": "published",
+      "audience": "public",
+      "handling": "owner_review_required",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-050",
+      "key": "privacy.call_notice",
+      "state": "published",
+      "audience": "public",
+      "handling": "owner_review_required",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-051",
+      "key": "privacy.retention",
+      "state": "published",
+      "audience": "public",
+      "handling": "owner_review_required",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-052",
+      "key": "privacy.external_ai",
+      "state": "published",
+      "audience": "public",
+      "handling": "owner_review_required",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-053",
+      "key": "price.tax",
+      "state": "published",
+      "audience": "public",
+      "handling": "owner_review_required",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-054",
+      "key": "sales.recruiting_status",
+      "state": "published",
+      "audience": "public",
+      "handling": "owner_review_required",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": 1,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-055",
+      "key": "research.heterogeneous_llm",
+      "state": "approved",
+      "audience": "admin_only",
+      "handling": "owner_review_required",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": null,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-056",
+      "key": "research.physical_ai",
+      "state": "approved",
+      "audience": "admin_only",
+      "handling": "owner_review_required",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": null,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-057",
+      "key": "research.harness",
+      "state": "approved",
+      "audience": "admin_only",
+      "handling": "owner_review_required",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": null,
+      "deletedAt": null
+    },
+    {
+      "knowledgeId": "COR-K-058",
+      "key": "company.mission_wording",
+      "state": "approved",
+      "audience": "admin_only",
+      "handling": "owner_review_required",
+      "evidenceState": null,
+      "asOf": null,
+      "sourceRefs": null,
+      "currentRevision": null,
+      "publishedRevision": null,
+      "deletedAt": null
+    }
+  ]
+}

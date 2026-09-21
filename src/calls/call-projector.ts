@@ -102,17 +102,39 @@ const projectedEffective = (extraction: ProviderCallProjection['extraction']) =>
     memo: null
 });
 
-const effectiveEquals = (
-    effective: CallRecord['effective'],
-    expected: ReturnType<typeof projectedEffective>
-): boolean =>
-    effective.summary === expected.summary
-    && effective.callerName === expected.callerName
-    && effective.callerNameKana === expected.callerNameKana
-    && effective.callbackNumber === expected.callbackNumber
-    && effective.callbackRequestedWindow === expected.callbackRequestedWindow
-    && effective.intent === expected.intent
-    && effective.memo === expected.memo;
+const EFFECTIVE_KEYS = [
+    'summary',
+    'callerName',
+    'callerNameKana',
+    'callbackNumber',
+    'callbackRequestedWindow',
+    'intent',
+    'memo'
+] as const;
+
+/** Field-level merge of the human-editable effective record.
+ *
+ * A field still equal to what the PREVIOUS projection derived is untouched
+ * — the new extraction may fill it. Any divergence is a human edit and is
+ * preserved verbatim. A projection that carries no extraction at all never
+ * erases stored values (ACCEPT-T03: a late "start" must not blank the
+ * summary an earlier "end" already wrote — B03; editing one field mid-call
+ * must not freeze the others — B04). */
+const mergeEffective = (
+    existing: CallRecord | null,
+    extraction: ProviderCallProjection['extraction']
+): CallRecord['effective'] => {
+    if (!existing) return projectedEffective(extraction);
+    const previous = projectedEffective(existing.extraction ?? null);
+    const incoming = extraction ? projectedEffective(extraction) : null;
+    const effective = { ...existing.effective };
+    for (const key of EFFECTIVE_KEYS) {
+        if (existing.effective[key] === previous[key] && incoming) {
+            effective[key] = incoming[key];
+        }
+    }
+    return effective;
+};
 
 const mergeRecord = (
     existing: CallRecord | null,
@@ -130,15 +152,10 @@ const mergeRecord = (
                 : input.outcome === 'completed' ? 'done'
                     : 'new';
 
-    // The start-time projection writes effective = all-null. If it still
-    // equals what the previous extraction derived, no human touched it —
-    // refresh from the new extraction. Any divergence means a human edit
-    // exists and is preserved verbatim.
-    const effective = existing
-        ? (effectiveEquals(existing.effective, projectedEffective(existing.extraction))
-            ? projectedEffective(extraction)
-            : existing.effective)
-        : projectedEffective(extraction);
+    // The start-time projection writes effective = all-null. Fields the
+    // human never touched track the latest extraction; human edits win —
+    // decided per field, never all-or-nothing.
+    const effective = mergeEffective(existing, extraction);
 
     const transportState = existing
         && TERMINAL_TRANSPORT_STATES.has(existing.transportState)
