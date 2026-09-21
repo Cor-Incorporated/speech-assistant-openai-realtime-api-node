@@ -187,3 +187,29 @@
 - 未認証プローブ2回の前後で`callLogsV2`は既存2件のまま(新規業務レコード0)
 - Cloud Logging(新revision): ERROR以上のログなし
 - 未実施: W01の「断片化された待機文で誤解除しない」はwire契約とmockで検証済み。実Live APIでの最終確認(自然なdelta断片での待機文と正常回答の区別)は実PSTN通話または認証済みストリーム試験待ち。V02の実Live再現率は今回0/2で非再現だが小標本のため、次回検収での再確認が望ましい
+
+## 第7回検収(2026-09-21) 修復記録 — X01
+
+**第7回検収**: W01のE01/E02は改善したが、同じ待機句の別の断片境界で監視を解除するP1残件X01を再現。「少々お待ちください」(完成した短い句)→音声8パケット→「ま」→「せ」の順で、短い句を先に除去した残り「ま」が実質1文字と誤判定されwatchdogが不可逆に解除。V02は実Live 0/3で非再現、Grift料金3/3正答。判定「本格受入テストへの移行は保留」
+**修復ブランチ**: `fix/reception-round7-remediation-20260921` → PR #109 (develop宛、merge commit `c8814cd`)
+
+| # | 指摘 | 対応 | 検証 |
+|---|---|---|---|
+| X01 | 完成句の除去が前方一致チェックより先に走るため、短い完成句(「少々お待ちください」)で始まる長い句(「…ませ」)の途中断片が実質文字に化ける。現行31句中2prefixに同型 | `substantiveTranscriptChars` を正規表現一括除去から左→右スキャンへ変更。各位置で余り全体の真の前方一致を先に判定し、完成句は最長一致で除去。累積テキストの最終分類がdelta粒度・音声順序に不変 | `polite-filler.test.mjs` F01/F02緑(修復前F02 FAIL)。D01/D02/E01/E02・B05/B06維持 |
+
+## 第7回検収修復の検証エビデンス
+
+- `npm test` — `# tests 397 / # pass 397 / # fail 0 / # cancelled 0`(新規probe `polite-filler.test.mjs`含む)
+- `review-artifacts/polite-filler.test.mjs` — F01一括/F02分割ともWS CLOSE・回復指示1(修復前はF02がWS OPEN・指示0)
+- `review-artifacts/streamed-filler.test.mjs` / `watchdog-boundary.test.mjs` — E01/E02/D01/D02緑を維持
+- CI(Node checks/h5-admission/gitleaks)— PR #109全緑
+
+## 第7回検収修復の本番デプロイ検証(2026-09-22 0:0x JST)
+
+- PR #109をdevelopへマージ(`c8814cd`)、Actions run `35616932253` Deploy Cloud Run成功(2分36秒)
+- 新revision `speech-assistant-realtime-00045-bqb` が100%トラフィック
+- `/health`=`{"status":"ok"}`、`/`=200
+- トークンなしstart→`closed:4403:forbidden`、未認証アイドル→`closed:4403:stream_auth_timeout`(11.8秒)
+- 未認証プローブ2回の前後で`callLogsV2`は既存2件のまま(新規業務レコード0)
+- Cloud Logging(新revision): ERROR以上のログなし
+- 未実施: X01の「曖昧境界で誤解除しない」はwire契約とmockで検証済み。実Live APIでの最終確認は実PSTN通話または認証済みストリーム試験待ち。V02は今回0/3で非再現だが小標本のため次回検収での再確認が望ましい
