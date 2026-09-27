@@ -8,7 +8,7 @@
 
 ## Cor. Cloud Run Preview
 
-Cor.管理の検証用デプロイは [Cloud Run UI](https://speech-assistant-realtime-mggisi6odq-an.a.run.app/app/) で確認できます。`/app` と `/api/admin/*` はHTTP Basic認証で保護され、通話一覧・抽出結果・ランタイム設定・ログ保存ポリシーを確認するための汎用管理UIとして実装しています。
+Cor.管理の検証用デプロイは [Cloud Run UI](https://speech-assistant-realtime-qvghygsdwq-an.a.run.app/app/) で確認できます（GCP project `cor-jp-web`）。`/app` と `/api/admin/*` はHTTP Basic認証で保護され、通話一覧・抽出結果・ランタイム設定・ログ保存ポリシーを確認するための汎用管理UIとして実装しています。
 
 正確なCloud Run URL、Twilio webhook、Media Streams WebSocket、管理API URLは [docs/cor-cloud-run-preview.md](./docs/cor-cloud-run-preview.md) に記録しています。
 
