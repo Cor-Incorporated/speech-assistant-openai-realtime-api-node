@@ -2,6 +2,8 @@
 
 対応ADR: [ADR-0005](./adr/0005-gcp-project-migration-cor-jp-web.md) ／ 対応Wave: A1（新環境構築）、A2（切替と旧環境停止）
 
+> **状態（2026-09-27）**: 移行は完了した。旧 `aipartner-426616` はプロジェクトごと削除済み（2026-10-27 まで `gcloud projects undelete aipartner-426616` で復元可）。現行の URL と設定値は [cor-cloud-run-preview.md](./cor-cloud-run-preview.md) を参照。以下は実施時の手順の記録として残す。
+
 現行環境の実URL・実値は [cor-cloud-run-preview.md](./cor-cloud-run-preview.md) を参照。**移行先の新URLはデプロイするまで記入しない**（A2完了時に同docを更新する）。
 
 ## 前提
@@ -109,6 +111,8 @@ gcloud run services update speech-assistant-realtime \
   --project aipartner-426616 --region asia-northeast1 \
   --min-instances 0 --max-instances 0
 ```
+
+> 2026-09-27: 旧プロジェクトは削除済みのため、このコマンドはもう実行できない（実行不要）。
 
 ### 5. ドキュメント更新（A2完了条件に含む）
 

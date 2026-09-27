@@ -1,6 +1,6 @@
 # ADR 0005: GCPプロジェクトを cor-jp-web へ統一移行する
 
-- ステータス: 採用（実行待ち）
+- ステータス: 採用（実施済み。2026-09-27 に旧プロジェクトを削除。末尾の「実施状況」参照）
 - 日付: 2026-07-15
 - 対象: Cloud Runデプロイ先、Firestore、Secret Manager、Twilio webhook設定
 
@@ -36,3 +36,11 @@
 - 通話ログFirestoreは新プロジェクトに新規作成する。過去ログの移行要否は切替時に判断する（運用ビューのGoogle Sheetsは継続利用可能）。
 - [cor-cloud-run-preview.md](../cor-cloud-run-preview.md) と `Readme.md` の実URL記載は、切替完了時に更新する（デプロイ前にURLを推測で書かない）。
 - 関連issue: 新環境構築（Wave A1）、webhook切替と旧環境停止（Wave A2）
+
+## 実施状況（2026-09-27 追記）
+
+- 手順1（新環境構築）: `cor-jp-web` の Cloud Run `speech-assistant-realtime` は 2026-07-15 に初版（リビジョン `00001-2hq`）をデプロイ済み。2026-09-22 時点の最新はリビジョン `00048-xtf`
+- 手順3（Twilio webhook 切替）: 直近30日のログで、`/incoming-call` への着信は `cor-jp-web` に 8 件（2026-09-18〜2026-09-21）。切替日そのものは確認していない（ログで追えるのは直近30日のみ）
+- 手順4（旧環境停止）: 2026-09-27 に `aipartner-426616` をプロジェクトごと削除した（削除前 7 日間の旧サービスへのリクエストは 0 件）。2026-10-27 までは `gcloud projects undelete aipartner-426616` で復元できるが、それ以降は「Twilio webhook を旧URLへ戻すだけで復旧」というロールバックは使えない
+- 旧プロジェクトの通話ログ Firestore（`speech-assistant-logs`）もプロジェクトと一緒に削除対象になった。過去ログを新プロジェクトへ移したかどうかは、この追記では確認していない
+- 現行の URL と設定値は [cor-cloud-run-preview.md](../cor-cloud-run-preview.md) を正とする
