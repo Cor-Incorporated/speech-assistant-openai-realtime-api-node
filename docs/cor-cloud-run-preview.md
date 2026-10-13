@@ -28,7 +28,7 @@ This repository is deployed by Cor.株式会社 to the following Google Cloud Ru
 | Service URL | `https://speech-assistant-realtime-qvghygsdwq-an.a.run.app` |
 | Alternate URL | `https://speech-assistant-realtime-821571105160.asia-northeast1.run.app`（Cloud Run の決定論URL。Twilio には使わない） |
 | Runtime service account | `speech-assistant-runtime@cor-jp-web.iam.gserviceaccount.com` |
-| Min instances | `1` |
+| Min instances | `0`（2026-10-13 に `1` から変更。常時待機が必要な期間だけ GitHub Variable `CLOUD_RUN_MIN_INSTANCES=1`） |
 
 ## Exact URLs
 

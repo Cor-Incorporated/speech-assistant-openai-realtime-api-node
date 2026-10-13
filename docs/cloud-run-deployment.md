@@ -93,6 +93,14 @@ Cloud Run実行サービスアカウント `<service-account>@<project>.iam.gser
 
 ## 注意点
 
-- `--min-instances` の既定は `0` です（2026-10-13 変更）。`1` にすると 1 vCPU / 512Mi のアイドル課金が東京リージョンで約 ¥1,500/月発生するため、着信がほぼ無い期間は `0` を維持します。デモや UAT で常時待機が必要な期間だけ GitHub Variable `CLOUD_RUN_MIN_INSTANCES=1` を設定し、終わったら削除します。`gcloud run services update --min-instances` で直接変えた値は次回デプロイでワークフロー側の値に上書きされます。
+- `--min-instances` の既定は `0` です（2026-10-13 変更）。`1` にすると 1 vCPU / 512Mi のアイドル課金が約 ¥1,500/月（2026-09 実測）発生するため、着信がほぼ無い期間は `0` を維持します。`0` ではアイドル後の最初の `/incoming-call` がコールドスタート（数秒）を待ちます。Twilio の webhook タイムアウト 15 秒には収まります。
+- デモや UAT で常時待機が必要な期間だけ、リポジトリ変数で切り替えます（deploy job は `environment:` を使わないので、environment 変数ではなくリポジトリ変数に設定します）。設定後に develop へ push するか `gh workflow run deploy-cloud-run.yml` で反映されます。
+
+  ```bash
+  gh variable set CLOUD_RUN_MIN_INSTANCES --body 1 -R Cor-Incorporated/speech-assistant-openai-realtime-api-node
+  gh variable delete CLOUD_RUN_MIN_INSTANCES -R Cor-Incorporated/speech-assistant-openai-realtime-api-node
+  ```
+
+- `gcloud run services update --min-instances` で直接変えた値は次回デプロイでワークフロー側の値に上書きされます。ワークフローは `CLOUD_RUN_MIN_INSTANCES` が 0〜5 の整数でなければデプロイを止めます。
 - Cloud RunのWebSocketはリクエストtimeoutの影響を受けます。現時点では `3600` 秒に設定します。
 - Twilio webhook署名検証には、Twilio ConsoleのAccount Auth TokenをSecret Manager `twilio-auth-token` に保存する必要があります。

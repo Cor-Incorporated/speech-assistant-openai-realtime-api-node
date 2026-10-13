@@ -17,7 +17,7 @@ env:
   DEPLOYER_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
   RUNTIME_SERVICE_ACCOUNT: ${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT || 'speech-assistant-runtime@cor-jp-web.iam.gserviceaccount.com' }}
   WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-  # 0 が既定。1 にすると 1 vCPU/512Mi のアイドル課金（東京 Tier 2、約 ¥1,500/月）が常時発生する。
+  # 0 が既定。1 にすると 1 vCPU/512Mi のアイドル課金（2026-09 実測で約 ¥1,500/月）が常時発生する。
   # デモ・UAT で常時待機が必要な期間だけ GitHub Variable CLOUD_RUN_MIN_INSTANCES=1 を設定し、終了後に削除する。
   # gcloud run services update で直接変えた値はこのワークフローの次回デプロイで上書きされる（docs/cloud-run-deployment.md）。
   CLOUD_RUN_MIN_INSTANCES: ${{ vars.CLOUD_RUN_MIN_INSTANCES || '0' }}
@@ -78,6 +78,11 @@ jobs:
               exit 1
             fi
           done
+
+          if ! [[ "$CLOUD_RUN_MIN_INSTANCES" =~ ^[0-9]+$ ]] || [ "$CLOUD_RUN_MIN_INSTANCES" -gt 5 ]; then
+            echo "::error title=Invalid deployment variable::CLOUD_RUN_MIN_INSTANCES must be an integer 0-5 (observed '$CLOUD_RUN_MIN_INSTANCES')"
+            exit 1
+          fi
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
