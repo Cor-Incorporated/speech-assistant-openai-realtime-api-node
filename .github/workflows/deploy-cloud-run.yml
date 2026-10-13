@@ -30,7 +30,8 @@ env:
   HANDOFF_WHISPER_ACCEPT_DIGIT: ${{ vars.HANDOFF_WHISPER_ACCEPT_DIGIT || '1' }}
   NOTIFY_EMAIL_ENABLED: ${{ vars.NOTIFY_EMAIL_ENABLED || 'false' }}
   NOTIFY_EMAIL_TO: ${{ vars.NOTIFY_EMAIL_TO || 'cloudia@cor-jp.com' }}
-  NOTIFY_EMAIL_CC: ${{ vars.NOTIFY_EMAIL_CC || 'company@cor-jp.com,k.isayama@cor-jp.com,nagisa.terada@cor-jp.com' }}
+  # 既定の CC に個人アドレスを置かない。通知先の増減は GitHub Variable NOTIFY_EMAIL_CC で行う（オフボーディング時にコード変更を不要にする）。
+  NOTIFY_EMAIL_CC: ${{ vars.NOTIFY_EMAIL_CC || 'company@cor-jp.com' }}
   NOTIFY_EMAIL_FROM: ${{ vars.NOTIFY_EMAIL_FROM || 'noreply@cor-jp.com' }}
   ROUTING_PROVIDER: ${{ vars.ROUTING_PROVIDER || 'legacy' }}
   JEV_MODEL: ${{ vars.JEV_MODEL || 'jev-1.13.0' }}
