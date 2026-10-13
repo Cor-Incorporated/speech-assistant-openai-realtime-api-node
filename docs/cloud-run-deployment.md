@@ -24,7 +24,7 @@ gcloud run deploy speech-assistant-realtime \
   --region asia-northeast1 \
   --source . \
   --allow-unauthenticated \
-  --min-instances 1 \
+  --min-instances 0 \
   --max-instances 5 \
   --concurrency 20 \
   --timeout 3600 \
@@ -93,6 +93,6 @@ Cloud Run実行サービスアカウント `<service-account>@<project>.iam.gser
 
 ## 注意点
 
-- `--min-instances 1` により常時待機します。費用が発生するため、不要になったら0へ戻します。
+- `--min-instances` の既定は `0` です（2026-10-13 変更）。`1` にすると 1 vCPU / 512Mi のアイドル課金が東京リージョンで約 ¥1,500/月発生するため、着信がほぼ無い期間は `0` を維持します。デモや UAT で常時待機が必要な期間だけ GitHub Variable `CLOUD_RUN_MIN_INSTANCES=1` を設定し、終わったら削除します。`gcloud run services update --min-instances` で直接変えた値は次回デプロイでワークフロー側の値に上書きされます。
 - Cloud RunのWebSocketはリクエストtimeoutの影響を受けます。現時点では `3600` 秒に設定します。
 - Twilio webhook署名検証には、Twilio ConsoleのAccount Auth TokenをSecret Manager `twilio-auth-token` に保存する必要があります。

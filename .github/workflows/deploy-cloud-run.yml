@@ -17,6 +17,10 @@ env:
   DEPLOYER_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
   RUNTIME_SERVICE_ACCOUNT: ${{ vars.GCP_RUNTIME_SERVICE_ACCOUNT || 'speech-assistant-runtime@cor-jp-web.iam.gserviceaccount.com' }}
   WORKLOAD_IDENTITY_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+  # 0 が既定。1 にすると 1 vCPU/512Mi のアイドル課金（東京 Tier 2、約 ¥1,500/月）が常時発生する。
+  # デモ・UAT で常時待機が必要な期間だけ GitHub Variable CLOUD_RUN_MIN_INSTANCES=1 を設定し、終了後に削除する。
+  # gcloud run services update で直接変えた値はこのワークフローの次回デプロイで上書きされる（docs/cloud-run-deployment.md）。
+  CLOUD_RUN_MIN_INSTANCES: ${{ vars.CLOUD_RUN_MIN_INSTANCES || '0' }}
   TWILIO_WEBHOOK_URL: ${{ vars.TWILIO_WEBHOOK_URL }}
   CALL_LOG_FIRESTORE_DATABASE_ID: ${{ vars.CALL_LOG_FIRESTORE_DATABASE_ID }}
   GOOGLE_SHEETS_SPREADSHEET_ID: ${{ vars.GOOGLE_SHEETS_SPREADSHEET_ID }}
@@ -103,7 +107,7 @@ jobs:
             --source . \
             --allow-unauthenticated \
             --service-account "$RUNTIME_SERVICE_ACCOUNT" \
-            --min-instances 1 \
+            --min-instances "$CLOUD_RUN_MIN_INSTANCES" \
             --max-instances 5 \
             --concurrency 20 \
             --timeout 3600 \

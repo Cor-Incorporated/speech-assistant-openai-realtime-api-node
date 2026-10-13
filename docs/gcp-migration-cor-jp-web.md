@@ -130,5 +130,5 @@ gcloud run services update speech-assistant-realtime \
 
 ## 注意
 
-- WebSocket長時間接続のため `--timeout 3600`、`--min-instances 1`（コールドスタート回避）は現行設定を踏襲する。
+- WebSocket長時間接続のため `--timeout 3600` は現行設定を踏襲する。`--min-instances` は 2026-10-13 に `0` へ変更した（アイドル課金 約 ¥1,500/月の削減）。常時待機が必要な期間だけ GitHub Variable `CLOUD_RUN_MIN_INSTANCES=1` で切り替える（`docs/cloud-run-deployment.md` 参照）。
 - Dockerビルドは Apple Silicon から行う場合 `--platform linux/amd64` を明示する（`--source .` のCloud Buildなら不要）。
