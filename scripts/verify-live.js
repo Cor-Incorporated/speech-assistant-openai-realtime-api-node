@@ -106,12 +106,12 @@ function report(code) {
     console.log(`inputTranscript="${inputTranscript.trim()}"`);
     console.log(`outputTranscript="${outputTranscript.trim().slice(0, 200)}"`);
     console.log(`counts=${JSON.stringify({ ...counts, functionCalls: counts.functionCalls.map((c) => c.name) })}`);
-    const pass = started && inputTranscript.length > 0
-        && (counts.audioDeltas > 0 || outputTranscript.length > 0)
-        && (!FORCE_TOOL || (counts.functionCalls.length > 0 && postToolActivity && counts.errors.length === 0));
+    const pass = !code && started && inputTranscript.trim().length > 0
+        && counts.audioDeltas > 0 && counts.audioBytes > 0 && counts.errors.length === 0
+        && (!FORCE_TOOL || (counts.functionCalls.length > 0 && postToolActivity));
     console.log(pass ? '== PASS ==' : '== FAIL ==');
     try { ws.close(); } catch { /* ignore */ }
-    process.exit(code ?? (pass ? 0 : 1));
+    process.exit(code || (pass ? 0 : 1));
 }
 
 ws.on('open', () => {
@@ -270,6 +270,6 @@ ws.on('error', (err) => {
 ws.on('close', (code) => {
     if (!finished) {
         console.error(`\n[ws.close] code=${code}`);
-        report(started ? 0 : 1);
+        report([1000, 1005].includes(code) ? undefined : 1);
     }
 });
