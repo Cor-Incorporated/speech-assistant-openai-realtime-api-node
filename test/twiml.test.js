@@ -126,7 +126,7 @@ test('voicemail TwiML announces recording, records with a beep and reports the f
     assert.match(body, /<Record maxLength="90"[^>]*playBeep="true"[^>]*finishOnKey="#"/);
     assert.match(body, /action="https:\/\/voice\.example\/handoff\/voicemail-complete\?call_sid=CA1"/);
     assert.match(body, /recordingStatusCallback="https:\/\/voice\.example\/handoff\/recording-status\?call_sid=CA1&amp;x=1"/);
-    assert.match(body, /recordingStatusCallbackEvent="completed"/);
+    assert.match(body, /recordingStatusCallbackEvent="completed absent"/);
     assert.match(buildVoicemailThanksTwiml(), /ありがとうございました[\s\S]*Hangup/);
 });
 

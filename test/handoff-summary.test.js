@@ -107,6 +107,10 @@ test('waitForWhisperSummary returns immediately when nothing is pending and stop
 test('handoff context update persists only the patch so concurrent writers do not clobber each other', async () => {
     const writes = [];
     const firestore = {
+        runTransaction: async (operation) => operation({
+            get: (ref) => ref.get(),
+            set: (_ref, value, options) => { writes.push({ value, options }); }
+        }),
         collection: () => ({
             doc: () => ({
                 set: async (value, options) => { writes.push({ value, options }); },

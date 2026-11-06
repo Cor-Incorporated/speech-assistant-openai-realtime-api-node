@@ -273,6 +273,49 @@ test('handoff context store supports in-memory UAT mode', async () => {
     });
 });
 
+test('handoff contexts keep terminal state across stale writers on two instances', async () => {
+    const documents = new Map();
+    let transactionTail = Promise.resolve();
+    const firestore = {
+        collection: () => ({ doc: (id) => ({
+            id,
+            get: async () => ({ exists: documents.has(id), data: () => structuredClone(documents.get(id)) })
+        }) }),
+        runTransaction: (operation) => {
+            const run = transactionTail.then(async () => {
+                const writes = [];
+                const result = await operation({
+                    get: (ref) => ref.get(),
+                    set: (ref, value) => writes.push({ ref, value })
+                });
+                for (const { ref, value } of writes) documents.set(ref.id, { ...documents.get(ref.id), ...value });
+                return result;
+            });
+            transactionTail = run.catch(() => {});
+            return run;
+        }
+    };
+    for (const firestoreEnabled of [false, true]) {
+        const first = new HandoffContextStore({ firestoreEnabled, firestore });
+        const second = firestoreEnabled ? new HandoffContextStore({ firestoreEnabled, firestore }) : first;
+        for (const status of ['connected', 'voicemail_recorded', 'voicemail_empty']) {
+            const callSid = `CA_${firestoreEnabled}_${status}`;
+            await first.save(callSid, { status: 'requested', whisperAccepted: true });
+            const stale = await first.get(callSid);
+            await second.update(callSid, { status });
+            const result = await first.update(callSid, { status: 'whisper_rejected', whisperAccepted: false });
+            assert.equal(result.status, status);
+            assert.equal(result.whisperAccepted, true);
+            await first.save(callSid, { ...stale, status: 'voicemail_started', whisperAccepted: false });
+            await second.update(callSid, { summaryStatus: 'ready', whisperSummary: '確認が必要です' });
+            const saved = await first.get(callSid);
+            assert.equal(saved.status, status);
+            assert.equal(saved.whisperAccepted, true);
+            assert.equal(saved.summaryStatus, 'ready');
+        }
+    }
+});
+
 test('human gate defaults: voicemail fallback, AI summary on, bounded timings', () => {
     const config = buildHandoffConfig({ HANDOFF_ENABLED: 'true', HANDOFF_NUMBERS: '+810000000000' });
     assert.equal(config.fallbackMode, 'voicemail');

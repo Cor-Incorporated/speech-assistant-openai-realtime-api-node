@@ -34,6 +34,8 @@ async function buildHarness({
     transcript = '来週の打ち合わせの日程を変更したいです。折り返しをお願いします。',
     transcriptionStatus = 200,
     recordingStatus = 200,
+    emailStatuses = [],
+    beforeEmail = async () => {},
     signatureValid = true,
     notifyTo = 'ops@example.test',
     notifyCc = 'k.isayama@cor-jp.com,team@example.test'
@@ -58,12 +60,15 @@ async function buildHarness({
 
     const emails = [];
     const upstream = [];
+    const outcomes = [];
     const fetchImpl = async (url, options = {}) => {
         upstream.push({ url: String(url), options });
         const target = String(url);
         if (target === 'https://api.resend.com/emails') {
+            await beforeEmail(contextStore);
             emails.push(JSON.parse(options.body));
-            return jsonResponse({ id: `email_${emails.length}` });
+            const status = emailStatuses[emails.length - 1] || 200;
+            return jsonResponse(status === 200 ? { id: `email_${emails.length}` } : { message: 'temporary failure' }, status);
         }
         if (target.startsWith(RECORDING_URL)) {
             return recordingStatus === 200
@@ -105,11 +110,12 @@ async function buildHarness({
             }
         },
         auditLog: (event, payload) => audit.push({ event, ...payload }),
+        onHandoffOutcome: async (callSid, patch) => outcomes.push({ callSid, ...patch }),
         fetchImpl,
         sleep: (ms) => new Promise((resolve) => setTimeout(resolve, Math.min(ms, 5)))
     });
     await app.ready();
-    return { app, config, contextStore, emails, upstream, audit };
+    return { app, config, contextStore, emails, upstream, audit, outcomes };
 }
 
 describe('human gate: recipient answers the transfer', () => {
@@ -165,6 +171,7 @@ describe('human gate: recipient cannot take the call -> voicemail', () => {
         assert.match(dial.body, /maxLength="120"/);
         assert.match(dial.body, /finishOnKey="#"/);
         assert.match(dial.body, /recordingStatusCallback="[^"]*\/handoff\/recording-status\?call_sid=CA/);
+        assert.match(dial.body, /#rc=2&amp;rp=ct,rt,5xx/);
         assert.match(dial.body, /ピーという音のあとに/);
         assert.doesNotMatch(dial.body, /media-stream/);
 
@@ -280,12 +287,114 @@ describe('voicemail delivery by email', () => {
         assert.equal(harness.emails.length, 0);
     });
 
-    it('a caller who leaves no message still triggers a "no voicemail" notification with the caller number', async () => {
-        const response = await post(harness.app, `/handoff/voicemail-complete?call_sid=${CALL_SID}`, { RecordingDuration: '0' });
+    it('uses the final absent callback for silent recordings even when the action duration is positive', async () => {
+        const response = await post(harness.app, `/handoff/voicemail-complete?call_sid=${CALL_SID}`, { RecordingDuration: '5' });
         assert.match(response.body, /Hangup/);
+        assert.equal(harness.emails.length, 0);
+        const fields = { RecordingStatus: 'absent', RecordingSid: RECORDING_SID, CallSid: CALL_SID };
+        assert.equal((await post(harness.app, `/handoff/recording-status?call_sid=${CALL_SID}`, fields)).statusCode, 204);
+        await post(harness.app, `/handoff/recording-status?call_sid=${CALL_SID}`, fields);
         assert.equal(harness.emails.length, 1);
         assert.match(harness.emails[0].subject, /転送不成立・留守電なし/);
         assert.match(harness.emails[0].text, /\+819011112222/);
+    });
+});
+
+describe('voicemail callback acceptance across retries', () => {
+    const fields = { RecordingStatus: 'completed', RecordingSid: RECORDING_SID, RecordingUrl: RECORDING_URL, RecordingDuration: '9' };
+    const path = `/handoff/recording-status?call_sid=${CALL_SID}`;
+
+    it('retries failed mail delivery instead of acknowledging a permanently lost notification', async () => {
+        const harness = await buildHarness({ emailStatuses: [503, 200] });
+        try {
+            assert.equal((await post(harness.app, path, fields)).statusCode, 503);
+            assert.notEqual((await harness.contextStore.get(CALL_SID)).voicemailNotified, true);
+            assert.equal((await post(harness.app, path, fields)).statusCode, 204);
+            assert.equal((await harness.contextStore.get(CALL_SID)).voicemailNotified, true);
+            await post(harness.app, path, fields);
+            assert.equal(harness.emails.length, 2, 'one failed attempt and one accepted delivery');
+        } finally { await harness.app.close(); }
+    });
+
+    it('persists the recording reference before email delivery so its playback link already works', async () => {
+        const harness = await buildHarness({ beforeEmail: async (store) => {
+            const context = await store.get(CALL_SID);
+            assert.equal(context.voicemailRecordingSid, RECORDING_SID);
+            assert.equal(context.voicemailRecordingUrl, RECORDING_URL);
+        } });
+        try {
+            assert.equal((await post(harness.app, path, fields)).statusCode, 204);
+            assert.equal(harness.emails.length, 1);
+            assert.equal(harness.outcomes.at(-1).status, 'voicemail_recorded');
+            assert.equal(harness.outcomes.at(-1).voicemailNotified, true);
+        } finally { await harness.app.close(); }
+    });
+
+    it('concurrent recording callbacks deliver one message', async () => {
+        const harness = await buildHarness({ beforeEmail: async () => new Promise((resolve) => setTimeout(resolve, 20)) });
+        try {
+            const responses = await Promise.all([post(harness.app, path, fields), post(harness.app, path, fields)]);
+            assert.ok(responses.every((response) => [204, 503].includes(response.statusCode)));
+            assert.equal(harness.emails.length, 1);
+            assert.equal((await harness.contextStore.get(CALL_SID)).voicemailNotified, true);
+        } finally { await harness.app.close(); }
+    });
+
+    it('does not claim callback success or send mail when shared context cannot be read', async () => {
+        const harness = await buildHarness();
+        harness.contextStore.get = async () => { throw new Error('store unavailable'); };
+        try {
+            assert.equal((await post(harness.app, path, fields)).statusCode, 503);
+            assert.equal(harness.emails.length, 0);
+        } finally { await harness.app.close(); }
+    });
+
+    it('does not deliver a broken playback link when recording metadata cannot be saved', async () => {
+        const harness = await buildHarness();
+        harness.contextStore.update = async () => { throw new Error('store unavailable'); };
+        try {
+            assert.equal((await post(harness.app, path, fields)).statusCode, 503);
+            assert.equal(harness.emails.length, 0);
+        } finally { await harness.app.close(); }
+    });
+
+    it('ignores action duration zero until the terminal callback confirms whether audio exists', async () => {
+        const harness = await buildHarness();
+        try {
+            await post(harness.app, `/handoff/voicemail-complete?call_sid=${CALL_SID}`, { RecordingDuration: '0' });
+            await post(harness.app, path, fields);
+            assert.equal(harness.emails.length, 1);
+            assert.match(harness.emails[0].subject, /留守電あり/);
+        } finally { await harness.app.close(); }
+    });
+
+    it('a delayed dial callback cannot start another recording after voicemail has been delivered', async () => {
+        const harness = await buildHarness();
+        try {
+            await post(harness.app, path, fields);
+            const delayed = await post(harness.app, `/handoff/dial-status?call_sid=${CALL_SID}`, { DialCallStatus: 'no-answer' });
+            assert.match(delayed.body, /Hangup/);
+            assert.doesNotMatch(delayed.body, /<Record/);
+            assert.equal((await harness.contextStore.get(CALL_SID)).status, 'voicemail_recorded');
+            assert.equal(harness.emails.length, 1);
+        } finally { await harness.app.close(); }
+    });
+
+    it('uses the atomic update result when a dial callback read is stale', async () => {
+        const harness = await buildHarness();
+        try {
+            await harness.contextStore.update(CALL_SID, { status: 'voicemail_recorded', voicemailNotified: true });
+            const get = harness.contextStore.get.bind(harness.contextStore);
+            let stale = true;
+            harness.contextStore.get = async (callSid) => {
+                if (stale) { stale = false; return { status: 'requested' }; }
+                return get(callSid);
+            };
+            const response = await post(harness.app, `/handoff/dial-status?call_sid=${CALL_SID}`, { DialCallStatus: 'no-answer' });
+            assert.match(response.body, /Hangup/);
+            assert.doesNotMatch(response.body, /<Record/);
+            assert.equal((await get(CALL_SID)).status, 'voicemail_recorded');
+        } finally { await harness.app.close(); }
     });
 });
 
