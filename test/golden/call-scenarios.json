@@ -27,28 +27,24 @@
     },
     {
       "id": "G-H03",
-      "group": "human_gate",
+      "group": "ai_complete",
       "name": "開発の見積依頼（急ぎではない）",
       "turns": [
         "新しい予約システムの開発をお願いしたいのですが、見積もりをいただけますか。"
       ],
       "expected": {
-        "disposition": "human_gate",
-        "destination": "contract",
-        "trigger": "contract_request"
+        "disposition": "ai_business_intake"
       }
     },
     {
       "id": "G-H04",
-      "group": "human_gate",
+      "group": "ai_complete",
       "name": "業務委託の相談",
       "turns": [
         "業務委託で開発案件をご相談したいです。"
       ],
       "expected": {
-        "disposition": "human_gate",
-        "destination": "contract",
-        "trigger": "contract_request"
+        "disposition": "ai_business_intake"
       }
     },
     {
@@ -90,15 +86,13 @@
     },
     {
       "id": "G-H08",
-      "group": "human_gate",
+      "group": "ai_complete",
       "name": "急ぎではない旨を述べた開発見積",
       "turns": [
         "急ぎではないのですが、システム開発の見積もりをお願いしたいです。"
       ],
       "expected": {
-        "disposition": "human_gate",
-        "destination": "contract",
-        "trigger": "contract_request"
+        "disposition": "ai_business_intake"
       }
     },
     {

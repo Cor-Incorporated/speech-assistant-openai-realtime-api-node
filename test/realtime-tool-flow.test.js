@@ -213,6 +213,22 @@ test('Realtime tool flow routes payment disputes to general even if model reques
     assert.equal(output.destination, 'general');
 });
 
+test('Realtime tool flow rejects a non-urgent development handoff and guides AI callback intake', () => {
+    const result = handleRealtimeToolCalls({
+        event: toolEvent('transfer_to_human', 'handoff_non_urgent_contract', {
+            reason: '開発見積の相談', destination: 'contract'
+        }),
+        state: { turns: [{ role: 'user', text: '急ぎではないのですが、システム開発の見積もりをお願いしたいです。' }] },
+        callEndConfig: buildCallEndConfig(),
+        handoffConfig: { enabled: true, numbers: ['+810000000000'], enforceRoutingPolicy: true }
+    });
+    assert.deepEqual(result.handoffRequests, []);
+    const output = JSON.parse(result.outputs[0].item.output);
+    assert.equal(output.reason, 'non_urgent_contract_handoff');
+    assert.match(output.instruction, /受付/);
+    assert.match(output.instruction, /finish_reception/);
+});
+
 test('Realtime tool flow blocks complaint transfer until complex model approval', () => {
     const result = handleRealtimeToolCalls({
         event: toolEvent('transfer_to_human', 'handoff_payment_blocked', {

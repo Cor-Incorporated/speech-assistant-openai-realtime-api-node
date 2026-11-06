@@ -136,7 +136,8 @@ test('handoff policy keeps non-urgent event calls in the call center', () => {
     assert.equal(isNonHandoffBusinessCall(eventTurns), true);
     assert.equal(isContractRequest(contractTurns), true);
     assert.equal(shouldAllowHumanHandoff(eventTurns, 'general'), false);
-    assert.equal(shouldAllowHumanHandoff(contractTurns, 'contract'), true);
+    assert.equal(shouldAllowHumanHandoff(contractTurns, 'contract'), false);
+    assert.equal(isNonHandoffBusinessCall(contractTurns), true);
 });
 
 test('handoff classification keeps ordinary and non-urgent business inquiries out of human transfer', () => {
@@ -214,7 +215,7 @@ test('handoff rejection forces parent Dial fallback even if Twilio reports compl
     assert.equal(isHandoffCallConnected('no-answer', { status: 'requested' }), false);
 });
 
-test('handoff policy blocks recruiting sales proposals but keeps contract requests eligible', () => {
+test('handoff policy receives non-urgent contract requests without treating them as sales or transferring', () => {
     const salesTurns = [
         { role: 'user', text: '弊社でエンジニアの採用サポートをしており、紹介料を抑えてアサインできます。' }
     ];
@@ -222,7 +223,7 @@ test('handoff policy blocks recruiting sales proposals but keeps contract reques
     assert.equal(isSalesBusinessCall(salesTurns), true);
     assert.equal(isNonHandoffBusinessCall([
         { role: 'user', text: 'システム開発を依頼したいので、見積もりを相談したいです。' }
-    ]), false);
+    ]), true);
     assert.equal(isContractRequest([
         { role: 'user', text: 'システム開発を依頼したいので、見積もりを相談したいです。' }
     ]), true);
@@ -238,6 +239,25 @@ test('handoff policy blocks recruiting sales proposals but keeps contract reques
     assert.equal(isSalesBusinessCall([
         { role: 'user', text: 'エンジニアを集めたイベントを開催したい相談です。' }
     ]), false);
+});
+
+test('only urgent contract requests can transfer while ordinary quotes remain AI intake', () => {
+    for (const text of [
+        '新しい予約システムの開発をお願いしたいです。',
+        '急ぎではないのですが、開発の見積もりをお願いしたいです。',
+        '業務委託で開発案件をご相談したいです。'
+    ]) {
+        const turns = [{ role: 'user', text }];
+        assert.equal(isContractRequest(turns), true, text);
+        assert.equal(isNonHandoffBusinessCall(turns), true, text);
+        assert.equal(isSalesBusinessCall(turns), false, text);
+        assert.equal(shouldAllowHumanHandoff(turns, 'contract'), false, text);
+    }
+    const urgent = [{ role: 'user', text: '至急、アプリ開発の見積もりをお願いしたいです。' }];
+    assert.equal(isNonHandoffBusinessCall(urgent), false);
+    assert.equal(shouldAllowHumanHandoff(urgent, 'contract'), true);
+    const config = buildHandoffConfig({ HANDOFF_ENABLED: true, HANDOFF_NUMBERS: '+810000000000' });
+    assert.match(appendHandoffInstructions('', config), /緊急性のない受託案件/);
 });
 
 test('Twilio call update sends TwiML with basic authentication', async () => {
