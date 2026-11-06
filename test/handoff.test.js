@@ -136,7 +136,8 @@ test('handoff policy keeps non-urgent event calls in the call center', () => {
     assert.equal(isNonHandoffBusinessCall(eventTurns), true);
     assert.equal(isContractRequest(contractTurns), true);
     assert.equal(shouldAllowHumanHandoff(eventTurns, 'general'), false);
-    assert.equal(shouldAllowHumanHandoff(contractTurns, 'contract'), true);
+    assert.equal(shouldAllowHumanHandoff(contractTurns, 'contract'), false);
+    assert.equal(isNonHandoffBusinessCall(contractTurns), true);
 });
 
 test('handoff classification keeps ordinary and non-urgent business inquiries out of human transfer', () => {
@@ -214,7 +215,7 @@ test('handoff rejection forces parent Dial fallback even if Twilio reports compl
     assert.equal(isHandoffCallConnected('no-answer', { status: 'requested' }), false);
 });
 
-test('handoff policy blocks recruiting sales proposals but keeps contract requests eligible', () => {
+test('handoff policy receives non-urgent contract requests without treating them as sales or transferring', () => {
     const salesTurns = [
         { role: 'user', text: '弊社でエンジニアの採用サポートをしており、紹介料を抑えてアサインできます。' }
     ];
@@ -222,7 +223,7 @@ test('handoff policy blocks recruiting sales proposals but keeps contract reques
     assert.equal(isSalesBusinessCall(salesTurns), true);
     assert.equal(isNonHandoffBusinessCall([
         { role: 'user', text: 'システム開発を依頼したいので、見積もりを相談したいです。' }
-    ]), false);
+    ]), true);
     assert.equal(isContractRequest([
         { role: 'user', text: 'システム開発を依頼したいので、見積もりを相談したいです。' }
     ]), true);
@@ -238,6 +239,25 @@ test('handoff policy blocks recruiting sales proposals but keeps contract reques
     assert.equal(isSalesBusinessCall([
         { role: 'user', text: 'エンジニアを集めたイベントを開催したい相談です。' }
     ]), false);
+});
+
+test('only urgent contract requests can transfer while ordinary quotes remain AI intake', () => {
+    for (const text of [
+        '新しい予約システムの開発をお願いしたいです。',
+        '急ぎではないのですが、開発の見積もりをお願いしたいです。',
+        '業務委託で開発案件をご相談したいです。'
+    ]) {
+        const turns = [{ role: 'user', text }];
+        assert.equal(isContractRequest(turns), true, text);
+        assert.equal(isNonHandoffBusinessCall(turns), true, text);
+        assert.equal(isSalesBusinessCall(turns), false, text);
+        assert.equal(shouldAllowHumanHandoff(turns, 'contract'), false, text);
+    }
+    const urgent = [{ role: 'user', text: '至急、アプリ開発の見積もりをお願いしたいです。' }];
+    assert.equal(isNonHandoffBusinessCall(urgent), false);
+    assert.equal(shouldAllowHumanHandoff(urgent, 'contract'), true);
+    const config = buildHandoffConfig({ HANDOFF_ENABLED: true, HANDOFF_NUMBERS: '+810000000000' });
+    assert.match(appendHandoffInstructions('', config), /緊急性のない受託案件/);
 });
 
 test('Twilio call update sends TwiML with basic authentication', async () => {
@@ -271,4 +291,83 @@ test('handoff context store supports in-memory UAT mode', async () => {
         status: 'connected',
         updatedAt: (await store.get('CA_TEST')).updatedAt
     });
+});
+
+test('handoff contexts keep terminal state across stale writers on two instances', async () => {
+    const documents = new Map();
+    let transactionTail = Promise.resolve();
+    const firestore = {
+        collection: () => ({ doc: (id) => ({
+            id,
+            get: async () => ({ exists: documents.has(id), data: () => structuredClone(documents.get(id)) })
+        }) }),
+        runTransaction: (operation) => {
+            const run = transactionTail.then(async () => {
+                const writes = [];
+                const result = await operation({
+                    get: (ref) => ref.get(),
+                    set: (ref, value) => writes.push({ ref, value })
+                });
+                for (const { ref, value } of writes) documents.set(ref.id, { ...documents.get(ref.id), ...value });
+                return result;
+            });
+            transactionTail = run.catch(() => {});
+            return run;
+        }
+    };
+    for (const firestoreEnabled of [false, true]) {
+        const first = new HandoffContextStore({ firestoreEnabled, firestore });
+        const second = firestoreEnabled ? new HandoffContextStore({ firestoreEnabled, firestore }) : first;
+        for (const status of ['connected', 'voicemail_recorded', 'voicemail_empty']) {
+            const callSid = `CA_${firestoreEnabled}_${status}`;
+            await first.save(callSid, { status: 'requested', whisperAccepted: true });
+            const stale = await first.get(callSid);
+            await second.update(callSid, { status });
+            const result = await first.update(callSid, { status: 'whisper_rejected', whisperAccepted: false });
+            assert.equal(result.status, status);
+            assert.equal(result.whisperAccepted, true);
+            await first.save(callSid, { ...stale, status: 'voicemail_started', whisperAccepted: false });
+            await second.update(callSid, { summaryStatus: 'ready', whisperSummary: '確認が必要です' });
+            const saved = await first.get(callSid);
+            assert.equal(saved.status, status);
+            assert.equal(saved.whisperAccepted, true);
+            assert.equal(saved.summaryStatus, 'ready');
+        }
+    }
+});
+
+test('human gate defaults: voicemail fallback, AI summary on, bounded timings', () => {
+    const config = buildHandoffConfig({ HANDOFF_ENABLED: 'true', HANDOFF_NUMBERS: '+810000000000' });
+    assert.equal(config.fallbackMode, 'voicemail');
+    assert.equal(config.voicemailMaxSeconds, 120);
+    assert.equal(config.voicemailTranscribeEnabled, true);
+    assert.equal(config.summaryEnabled, true);
+    assert.equal(config.summaryWaitMs, 3000);
+
+    const custom = buildHandoffConfig({
+        HANDOFF_FALLBACK_MODE: 'AI_RECEPTION',
+        VOICEMAIL_MAX_SECONDS: 9999,
+        VOICEMAIL_TRANSCRIBE_ENABLED: 'false',
+        HANDOFF_SUMMARY_ENABLED: 'false',
+        HANDOFF_SUMMARY_WAIT_MS: 99999
+    });
+    assert.equal(custom.fallbackMode, 'ai_reception');
+    assert.equal(custom.voicemailMaxSeconds, 300);
+    assert.equal(custom.voicemailTranscribeEnabled, false);
+    assert.equal(custom.summaryEnabled, false);
+    assert.equal(custom.summaryWaitMs, 8000);
+    assert.equal(buildHandoffConfig({ HANDOFF_FALLBACK_MODE: 'unknown' }).fallbackMode, 'voicemail');
+});
+
+test('a single number in HANDOFF_NUMBERS serves both contract and general destinations', () => {
+    const config = buildHandoffConfig({ HANDOFF_ENABLED: 'true', HANDOFF_NUMBERS: '+810000000000' });
+    assert.equal(config.destinationNumbers.contract, '+810000000000');
+    assert.equal(config.destinationNumbers.general, '+810000000000');
+    assert.deepEqual(config.numbers, ['+810000000000']);
+});
+
+test('polite "納得できません" complaints are recognized as complaints', () => {
+    assert.equal(isComplaintCall([{ role: 'user', text: '対応に納得できません。' }]), true);
+    assert.equal(isComplaintCall([{ role: 'user', text: '納得がいきません。' }]), true);
+    assert.equal(isComplaintCall([{ role: 'user', text: '納得しました、ありがとうございます。' }]), false);
 });

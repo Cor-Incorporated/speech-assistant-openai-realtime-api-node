@@ -9,7 +9,7 @@
 // ACK still requires an authenticated human action).
 
 import { randomUUID } from 'node:crypto';
-import type { CallRepository } from './call-repository.js';
+import { VersionConflictError, type CallRepository } from './call-repository.js';
 import {
     CALL_SCHEMA_VERSION,
     type CallRecord,
@@ -145,10 +145,23 @@ const mergeRecord = (
     const escalated = input.handoff?.requested === true
         || input.severity?.importance === 'high'
         || input.severity?.importance === 'critical';
+    const previousHumanState = existing?.humanCase.state ?? 'none';
+    const incomingHumanState = input.handoff?.requested
+        ? input.handoff.outcome === 'connected' ? 'connected'
+            : input.handoff.outcome ? 'unavailable' : 'connecting'
+        : previousHumanState;
+    // Callback delivery and stream finalization run on different instances.
+    // A late pending projection may fill extraction, but cannot undo a final
+    // phone outcome or an authenticated human's acknowledgement/resolution.
+    const humanState = ['assigned', 'acknowledged', 'resolved', 'connected'].includes(previousHumanState)
+        || (previousHumanState === 'unavailable' && incomingHumanState === 'connecting')
+        ? previousHumanState : incomingHumanState;
+    const needsHumanCallback = humanState === 'connecting' || humanState === 'unavailable';
+    const callbackRequired = humanState === 'connected' ? false : needsHumanCallback || input.callbackRequired;
 
     const status =
-        input.outcome === 'transferred' ? 'done'
-            : input.callbackRequired ? 'needs_callback'
+        humanState === 'connected' ? 'done'
+            : callbackRequired ? 'needs_callback'
                 : input.outcome === 'completed' ? 'done'
                     : 'new';
 
@@ -183,9 +196,9 @@ const mergeRecord = (
         ops: {
             status: existing?.ops.status === 'done' ? 'done' : status,
             assignee: existing?.ops.assignee ?? null,
-            callbackStatus: input.callbackRequired
+            callbackStatus: callbackRequired
                 ? (existing?.ops.callbackStatus === 'completed' ? 'completed' : 'pending')
-                : (existing?.ops.callbackStatus ?? 'not_required'),
+                : (humanState === 'connected' ? 'not_required' : existing?.ops.callbackStatus ?? 'not_required'),
             // Review flags only ever go false -> true on a projection —
             // a human who cleared it does so after the call's last
             // projection, so re-raising here cannot undo their action.
@@ -199,12 +212,13 @@ const mergeRecord = (
             riskKinds: input.severity?.riskKinds ?? existing?.severity.riskKinds ?? [],
             basis: input.severity?.basis ?? existing?.severity.basis ?? 'provider_projection'
         },
-        humanCase: existing?.humanCase ?? {
-            state: 'none',
+        humanCase: {
             caseId: null,
             notifiedAt: null,
             acknowledgedBy: null,
-            acknowledgedAt: null
+            acknowledgedAt: null,
+            ...existing?.humanCase,
+            state: humanState
         },
         recordVersion: (existing?.recordVersion ?? 0) + 1,
         deletedAt: existing?.deletedAt ?? null,
@@ -224,6 +238,21 @@ const mergeRecordSanitized = (
     now: string
 ): CallRecord => dropUndefined(mergeRecord(existing, input, now));
 
+const updateCall = async (repo: CallRepository, callId: string, merge: (current: CallRecord | null) => CallRecord) => {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        const current = await repo.get(callId);
+        const next = merge(current);
+        try {
+            if (current) return await repo.put(next, current.recordVersion);
+            const result = await repo.createIfAbsent(next);
+            if (result.created) return result.record;
+        } catch (error) {
+            if (!(error instanceof VersionConflictError) || attempt === 2) throw error;
+        }
+    }
+    throw new VersionConflictError(`call ${callId}: projection raced repeatedly`);
+};
+
 /**
  * Project one provider call into the v2 store. Idempotent: repeated calls
  * merge onto the same callId, and the escalation case uses a deterministic
@@ -235,14 +264,7 @@ export async function projectProviderCall(
     input: ProviderCallProjection
 ): Promise<{ record: CallRecord; escalation: EscalationCase | null }> {
     const now = input.now?.() ?? new Date().toISOString();
-    const existing = await repo.get(input.callId);
-    const record = mergeRecordSanitized(existing, input, now);
-
-    if (existing) {
-        await repo.put(record);
-    } else {
-        await repo.createIfAbsent(record);
-    }
+    const record = await updateCall(repo, input.callId, (current) => mergeRecordSanitized(current, input, now));
     await repo.appendEvent({
         eventId: `evt_${randomUUID()}`,
         callId: record.callId,
@@ -274,7 +296,7 @@ export async function projectProviderCall(
                 importance,
                 urgency: input.severity?.urgency ?? 'unknown',
                 summary: input.extraction?.summary ?? null,
-                state: input.notificationSent ? 'notified' : 'required',
+                state: record.humanCase.state === 'connected' ? 'connected' : input.notificationSent ? 'notified' : 'required',
                 ownerRole: null,
                 ownerSubject: null,
                 ackDeadlineAt: null,
@@ -299,37 +321,52 @@ export async function projectProviderCall(
                 metadata: { callId: record.callId, handoff: input.handoff?.outcome ?? null },
                 timestamp: now
             });
-        } else if (input.notificationSent && existingCase.state === 'required') {
-            escalation = await escalationRepo.put({
-                ...existingCase,
-                state: 'notified',
-                notifiedAt: existingCase.notifiedAt ?? now,
-                recordVersion: existingCase.recordVersion + 1,
-                updatedAt: now
-            });
         } else {
             escalation = existingCase;
+        }
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            const current = await escalationRepo.get(caseId);
+            if (!current) break;
+            const state = record.humanCase.state === 'connected'
+                && !['acknowledged', 'resolved'].includes(current.state) ? 'connected'
+                : input.notificationSent && current.state === 'required' ? 'notified' : current.state;
+            if (state === current.state && (!input.notificationSent || current.notifiedAt)) {
+                escalation = current;
+                break;
+            }
+            try {
+                escalation = await escalationRepo.put({
+                    ...current, state,
+                    notifiedAt: input.notificationSent ? current.notifiedAt ?? now : current.notifiedAt,
+                    recordVersion: current.recordVersion + 1, updatedAt: now
+                }, current.recordVersion);
+                break;
+            } catch (error) {
+                if (!(error instanceof VersionConflictError) || attempt === 2) throw error;
+            }
         }
     }
 
     // Reflect the case link back onto the call record when one exists —
     // humanCase.state tracks notification/ack on the call side too.
-    if (escalation && record.humanCase.caseId !== escalation.caseId) {
-        const linked: CallRecord = {
-            ...record,
+    if (escalation) {
+        const finalCase = escalation;
+        const linked = await updateCall(repo, record.callId, (current) => ({
+            ...(current ?? record),
             humanCase: {
-                state: escalation.state === 'acknowledged' ? 'acknowledged'
-                    : escalation.state === 'notified' ? 'notified'
-                        : 'required',
-                caseId: escalation.caseId,
-                notifiedAt: escalation.notifiedAt,
-                acknowledgedBy: escalation.acknowledgedBy,
-                acknowledgedAt: escalation.acknowledgedAt
+                state: ['assigned', 'acknowledged', 'resolved'].includes(current?.humanCase.state ?? '')
+                    ? current!.humanCase.state
+                    : finalCase.state === 'acknowledged' || finalCase.state === 'resolved' ? finalCase.state
+                        : ['connecting', 'connected', 'unavailable'].includes(current?.humanCase.state ?? '')
+                            ? current!.humanCase.state : finalCase.state === 'notified' ? 'notified' : 'required',
+                caseId: finalCase.caseId,
+                notifiedAt: current?.humanCase.notifiedAt ?? finalCase.notifiedAt,
+                acknowledgedBy: current?.humanCase.acknowledgedBy ?? finalCase.acknowledgedBy,
+                acknowledgedAt: current?.humanCase.acknowledgedAt ?? finalCase.acknowledgedAt
             },
-            recordVersion: record.recordVersion + 1,
+            recordVersion: (current ?? record).recordVersion + 1,
             updatedAt: now
-        };
-        await repo.put(linked);
+        }));
         return { record: linked, escalation };
     }
 

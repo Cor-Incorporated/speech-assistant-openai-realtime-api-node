@@ -7,6 +7,8 @@ import test from 'node:test';
 import { projectProviderCall } from '../dist-backend/calls/call-projector.js';
 import { InMemoryCallRepository } from '../dist-backend/calls/call-repository.js';
 import { InMemoryEscalationRepository } from '../dist-backend/escalations/escalation-service.js';
+import { createHandoffOutcomeHandler } from '../lib/handoff-outcome.js';
+import { HandoffContextStore } from '../lib/handoff.js';
 
 const baseInput = {
     callId: 'CA' + 'a'.repeat(32),
@@ -65,10 +67,10 @@ test('a handoff-requested call creates an escalation case linked to the call', a
 
     assert.ok(escalation, 'escalation case must exist');
     assert.equal(escalation.callId, record.callId);
-    assert.equal(escalation.state, 'notified'); // notified, NOT acknowledged
+    assert.equal(escalation.state, 'connected'); // explicit phone acceptance, not an admin acknowledgement
     assert.equal(escalation.acknowledgedBy, null);
     assert.equal(record.humanCase.caseId, escalation.caseId);
-    assert.equal(record.humanCase.state, 'notified');
+    assert.equal(record.humanCase.state, 'connected');
 });
 
 test('duplicate close events never double-create the call or the case', async () => {
@@ -129,4 +131,125 @@ test('notification never implies acknowledgement', async () => {
     assert.equal(escalation.state, 'notified');
     assert.equal(escalation.acknowledgedAt, null);
     assert.equal(escalation.acknowledgedBy, null);
+});
+
+const pendingHandoff = {
+    ...baseInput, outcome: 'abandoned', callbackRequired: true,
+    handoff: { requested: true, destination: 'general', outcome: null }
+};
+const connectedHandoff = {
+    ...pendingHandoff, extraction: null, outcome: 'transferred', callbackRequired: false,
+    handoff: { requested: true, destination: 'general', outcome: 'connected' }
+};
+
+test('handoff stream closure is pending until the recipient accepts', async () => {
+    const repo = new InMemoryCallRepository();
+    const { record } = await projectProviderCall(repo, null, pendingHandoff);
+    assert.equal(record.ops.status, 'needs_callback');
+    assert.equal(record.humanCase.state, 'connecting');
+});
+
+for (const outcome of ['connected', 'timeout']) {
+    test(`a late stream close retains the final ${outcome} outcome and fills extraction`, async () => {
+        const repo = new InMemoryCallRepository();
+        const escRepo = new InMemoryEscalationRepository();
+        await projectProviderCall(repo, escRepo, {
+            ...connectedHandoff, handoff: { ...connectedHandoff.handoff, outcome }
+        });
+        await projectProviderCall(repo, escRepo, pendingHandoff);
+        const record = await repo.get(baseInput.callId);
+        assert.equal(record.humanCase.state, outcome === 'connected' ? 'connected' : 'unavailable');
+        assert.equal(record.ops.status, outcome === 'connected' ? 'done' : 'needs_callback');
+        assert.equal(record.effective.callerName, 'テスト太郎');
+    });
+}
+
+test('a delayed close write cannot overwrite a concurrent accepted-transfer projection', async () => {
+    const repo = new InMemoryCallRepository();
+    await projectProviderCall(repo, null, { ...baseInput, extraction: null, outcome: 'abandoned', callbackRequired: false });
+    const originalPut = repo.put.bind(repo);
+    let release;
+    let entered;
+    const enteredPromise = new Promise((resolve) => { entered = resolve; });
+    const blocked = new Promise((resolve) => { release = resolve; });
+    let held = false;
+    repo.put = async (record, version) => {
+        if (!held && record.humanCase.state === 'connecting') {
+            held = true; entered(); await blocked;
+        }
+        return originalPut(record, version);
+    };
+    const closing = projectProviderCall(repo, null, pendingHandoff);
+    await enteredPromise;
+    await projectProviderCall(repo, null, connectedHandoff);
+    release();
+    await closing;
+    const record = await repo.get(baseInput.callId);
+    assert.equal(record.humanCase.state, 'connected');
+    assert.equal(record.ops.status, 'done');
+    assert.equal(record.ops.callbackStatus, 'not_required');
+    assert.equal(record.extraction.summary, baseInput.extraction.summary);
+});
+
+test('concurrent first projections merge a created record instead of dropping extraction', async () => {
+    const repo = new InMemoryCallRepository();
+    await Promise.all([
+        projectProviderCall(repo, null, connectedHandoff),
+        projectProviderCall(repo, null, pendingHandoff)
+    ]);
+    const record = await repo.get(baseInput.callId);
+    assert.equal(record.humanCase.state, 'connected');
+    assert.equal(record.effective.callerName, 'テスト太郎');
+});
+
+test('a notification racing with a human acknowledgement preserves the acknowledgement', async () => {
+    const repo = new InMemoryCallRepository();
+    const escRepo = new InMemoryEscalationRepository();
+    await projectProviderCall(repo, escRepo, pendingHandoff);
+    const originalPut = escRepo.put.bind(escRepo);
+    let interrupted = false;
+    escRepo.put = async (record, version) => {
+        if (!interrupted && record.state === 'notified') {
+            interrupted = true;
+            const current = await escRepo.get(record.caseId);
+            await originalPut({ ...current, state: 'acknowledged', acknowledgedBy: 'test-operator', acknowledgedAt: '2026-11-07T01:00:00Z', recordVersion: current.recordVersion + 1 }, current.recordVersion);
+        }
+        return originalPut(record, version);
+    };
+    const result = await projectProviderCall(repo, escRepo, { ...pendingHandoff, notificationSent: true });
+    assert.equal(result.escalation.state, 'acknowledged');
+    assert.equal(result.record.humanCase.state, 'acknowledged');
+    assert.equal(result.record.humanCase.acknowledgedBy, 'test-operator');
+});
+
+test('final callback reads saved acceptance and still projects when notification storage fails', async () => {
+    const contextStore = new HandoffContextStore();
+    const repo = new InMemoryCallRepository();
+    await contextStore.save(baseInput.callId, { status: 'connected', whisperAccepted: false });
+    const reconcile = createHandoffOutcomeHandler({
+        contextStore,
+        notificationOutbox: { enqueue: async () => { throw new Error('test storage outage'); } },
+        projectCall: (input) => projectProviderCall(repo, null, input)
+    });
+    await reconcile(baseInput.callId);
+    assert.equal(await repo.get(baseInput.callId), null, 'completed dial alone does not prove acceptance');
+    const acceptedCallId = 'CA' + 'c'.repeat(32);
+    await contextStore.save(acceptedCallId, { status: 'connected', whisperAccepted: true });
+    await reconcile(acceptedCallId);
+    assert.equal((await repo.get(acceptedCallId)).humanCase.state, 'connected');
+});
+
+test('voicemail outcome creates a callback obligation without another summary email', async () => {
+    const contextStore = new HandoffContextStore();
+    const repo = new InMemoryCallRepository();
+    await contextStore.save(baseInput.callId, { status: 'voicemail_recorded', voicemailNotified: true });
+    const reconcile = createHandoffOutcomeHandler({
+        contextStore,
+        notificationOutbox: { enqueue: async () => { assert.fail('voicemail notification belongs to the recording callback'); } },
+        projectCall: (input) => projectProviderCall(repo, null, input)
+    });
+    await reconcile(baseInput.callId);
+    const record = await repo.get(baseInput.callId);
+    assert.equal(record.humanCase.state, 'unavailable');
+    assert.equal(record.ops.status, 'needs_callback');
 });

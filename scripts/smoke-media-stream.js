@@ -27,6 +27,7 @@ const ws = new WebSocket(url, {
         'x-twilio-call-sid': callSid
     }
 });
+let receivedMedia = false;
 
 const timeout = setTimeout(() => {
     console.error(`not ok - timed out after ${timeoutMs}ms waiting for outbound media`);
@@ -78,6 +79,7 @@ ws.on('open', () => {
 ws.on('message', (raw) => {
     const message = JSON.parse(raw);
     if (message.event === 'media' && message.media?.payload) {
+        receivedMedia = true;
         console.log('ok - received outbound media payload from server');
         clearTimeout(timeout);
         ws.close();
@@ -90,6 +92,10 @@ ws.on('error', (error) => {
     process.exit(1);
 });
 
-ws.on('close', () => {
+ws.on('close', (code) => {
     clearTimeout(timeout);
+    if (!receivedMedia) {
+        console.error(`not ok - WebSocket closed with code ${code} before outbound media`);
+        process.exitCode = 1;
+    }
 });
