@@ -18,7 +18,7 @@ ADR-0006の構成は「1を押さなければ接続しない」までは満た�
 
 ## 決定
 
-1. **要約**: 転送開始と並行してAI（`HANDOFF_SUMMARY_MODEL`、未指定なら `EXTRACTION_MODEL`）が担当者向けの短い要約を作る。担当者が応答した時点で未完了なら最大 `HANDOFF_SUMMARY_WAIT_MS`（既定3秒）待ち、間に合わなければ従来の簡易要約を読み上げる。応答しない・失敗しても転送は止めない。Cloud Runでは whisper webhook が別インスタンスに届き得るため、完了判定は共有の handoff context（Firestore）で行う。
+1. **要約**: AI（`HANDOFF_SUMMARY_MODEL`、未指定なら `EXTRACTION_MODEL`）が担当者向けの短い要約を作る。転送でMedia Streamを閉じる前に、APIと保存処理を最大 `HANDOFF_SUMMARY_TIMEOUT_MS + 1000` ms（既定5秒）待つ。要約API自体は既定4秒で打ち切る。待機後にActionGateが通話状態を再評価し、切断済みなら発信しない。期限超過・失敗時も簡易要約で転送を継続する。担当者が応答した時点で未完了なら最大 `HANDOFF_SUMMARY_WAIT_MS`（既定3秒）待つ。Cloud Runでは whisper webhook が別インスタンスに届き得るため、完了判定は共有の handoff context（Firestore）で行う。
 2. **判断キー**: 1=今すぐ対応して接続、2=対応できない。**2・無入力・切断・不在・話中・失敗はすべて留守番電話**。接続の成立条件は従来どおり「whisperで1を明示受諾」のみ（キャリア留守電が出ても接続扱いにならない）。
 3. **留守番電話**: 発信者へ録音案内（録音される旨を含む）→ `<Record>`（最大 `VOICEMAIL_MAX_SECONDS`、既定120秒、`#`で終了）。録音完了のcallbackで録音をTwilioから取得し、`TRANSCRIPTION_MODEL` で文字起こしして、**1通のメール**（文字起こし・発信者番号・AI要約・管理画面の再生リンク）を送る。文字起こしや録音取得に失敗してもメールは送る。メッセージが無かった場合も「転送不成立・留守電なし」をメールする。
 4. **通知先**: `NOTIFY_EMAIL_TO/CC`。廃止済みアドレス（`k.isayama@cor-jp.com`）はコード側で常に除外し、設定に残っていても送らない。`NOTIFY_EMAIL_BLOCKLIST` で追加除外できる。
@@ -31,6 +31,8 @@ ADR-0006の構成は「1を押さなければ接続しない」までは満た�
 
 - 緊急語（至急・今すぐ等）による**自動転送が実際には発信されていなかった**。呼び出し側が `session.handoff.starting = true` を先に立てたうえで `startHandoff()` を呼んでおり、`startHandoff()` 冒頭の二重発信防止が即座に return していた。E2Eテスト（Live模擬→Twilio REST）で検出。`startHandoff()` がclaimを持つ形に統一した。
 - 「納得できません」（丁寧形）が苦情として検出されず、高精度対応に入らず人間転送へ流れていた。パターンを拡張。
+
+- 実PSTN試験で要約がtimeoutになった。要約を待たずTwilioへ転送するとMedia Streamが閉じ、`cpuIdle=true` のCloud Runでは残った非同期処理のCPUが制限され得る。[Cloud Run公式のbackground activity指針](https://docs.cloud.google.com/run/docs/tips/general#background_activity)に合わせ、接続中に期限付きで待つ。CPU制限を当該timeoutの唯一の原因とは断定しない。
 
 ## 影響
 
