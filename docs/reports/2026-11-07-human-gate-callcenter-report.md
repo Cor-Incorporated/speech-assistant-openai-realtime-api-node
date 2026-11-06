@@ -45,6 +45,10 @@
 
 `npm test` は構文・フロント型検査・フロント/バックエンドbuildを含め **527件成功、失敗0、skip0**（2026-11-07 JST）。`smoke:local` もroot/health/incoming-callの3経路が成功した。新規の終端競合・通知再送・非緊急判定は修正前の失敗を再現してから確認した。
 
+## 本番依存の追補
+
+認証前のWebSocket処理に到達するwsのfragment蓄積DoS（[GHSA-96hv-2xvq-fx4p](https://github.com/websockets/ws/security/advisories/GHSA-96hv-2xvq-fx4p)）を確認し、lockfileのwsだけを8.18.0から8.22.1へ更新した。実レジストリとインストール済みソースを照合し、17,000断片の限定probeがWS_ERR_TOO_MANY_BUFFERED_PARTSで拒否されることを確認。関連40テスト成功。本番auditはcritical0/high7/moderate6、ws advisoryは解消。残件は既存で、今回の到達性調査では外部入力の成立条件を確認していない。
+
 ## デプロイ前readback
 
 - 現revision: speech-assistant-realtime-00054-znm、traffic 100%、SHA 532ddede6b5534f70647b765483673e5f54ea5ea。
