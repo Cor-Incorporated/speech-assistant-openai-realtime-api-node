@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { after, before, describe, it } from 'node:test';
 import WebSocket, { WebSocketServer } from 'ws';
 import { createStreamToken } from '../lib/stream-auth.js';
+import { runHandoffSummary, waitForHandoffSummaryBeforeTransfer } from '../lib/handoff-summary.js';
 
 const CURRENT_DIR = dirname(fileURLToPath(import.meta.url));
 const INDEX_PATH = join(CURRENT_DIR, '..', 'index.js');
@@ -44,6 +45,7 @@ class ThirdPartyStub {
     constructor() {
         this.twilioCallUpdates = [];
         this.summaryRequests = [];
+        this.summaryHandler = null;
         this.emails = [];
         this.recordingDownloads = [];
     }
@@ -66,6 +68,7 @@ class ThirdPartyStub {
                 }
                 if (request.method === 'POST' && path === '/api.openai.com/v1/responses') {
                     this.summaryRequests.push(JSON.parse(body.toString()));
+                    if (this.summaryHandler) return this.summaryHandler(json);
                     return json({ output_text: AI_SUMMARY });
                 }
                 if (request.method === 'POST' && path === '/api.openai.com/v1/audio/transcriptions') {
@@ -127,6 +130,31 @@ class LiveProviderStub {
     }
 }
 
+it('bounds the entire summary operation when result persistence never resolves', async () => {
+    let persistenceStarted = false;
+    const summaryPromise = runHandoffSummary({
+        store: { update: () => { persistenceStarted = true; return new Promise(() => {}); } },
+        callSid: 'CA-stuck-summary-store',
+        turns: [{ role: 'user', text: '至急の確認をお願いします。' }],
+        apiKey: 'test-key',
+        defaultModel: 'test-model',
+        fetchImpl: async () => new Response(JSON.stringify({ output_text: AI_SUMMARY }))
+    });
+    const started = Date.now();
+    assert.deepEqual(await waitForHandoffSummaryBeforeTransfer({ summaryPromise, timeoutMs: 25 }), {
+        ok: false, reason: 'summary_wait_timeout'
+    });
+    assert.equal(persistenceStarted, true);
+    assert.ok(Date.now() - started < 1000);
+});
+
+it('contains a rejected summary operation so the caller can still be redirected', async () => {
+    assert.deepEqual(await waitForHandoffSummaryBeforeTransfer({
+        summaryPromise: Promise.reject(new Error('unexpected summary failure')),
+        timeoutMs: 25
+    }), { ok: false, reason: 'summary_wait_failed' });
+});
+
 describe('human gate end to end (real index.js, stubbed Twilio/OpenAI/Resend)', () => {
     let server;
     let serverPort;
@@ -168,6 +196,7 @@ describe('human gate end to end (real index.js, stubbed Twilio/OpenAI/Resend)', 
                 HANDOFF_ENABLED: 'true',
                 HANDOFF_NUMBERS: HUMAN_NUMBER,
                 HANDOFF_SUMMARY_MODEL: 'summary-test-model',
+                HANDOFF_SUMMARY_TIMEOUT_MS: '500',
                 NOTIFY_EMAIL_ENABLED: 'true',
                 RESEND_API_KEY: 'e2e-resend-key',
                 NOTIFY_EMAIL_TO: 'ops@example.test',
@@ -232,7 +261,7 @@ describe('human gate end to end (real index.js, stubbed Twilio/OpenAI/Resend)', 
 
     // Plays a caller and returns the transfer TwiML the server pushed to Twilio.
     // `toolCall` models the delegated backend deciding to call transfer_to_human.
-    const startUrgentCall = async (utterance, { toolCall = null } = {}) => {
+    const startUrgentCall = async (utterance, { toolCall = null, beforeTransfer = null, expectTransfer = true } = {}) => {
         callCounter += 1;
         const callSid = `CA${String(callCounter).padStart(2, '0')}${'0'.repeat(30)}`;
         const token = createStreamToken({ callSid, secret: AUTH_TOKEN });
@@ -259,6 +288,8 @@ describe('human gate end to end (real index.js, stubbed Twilio/OpenAI/Resend)', 
             await sleep(400);
             injectToolCall(conn, 'transfer_to_human', toolCall);
         }
+        if (beforeTransfer) await beforeTransfer({ callSid, socket });
+        if (!expectTransfer) return { callSid };
         const update = await waitFor(() => stub.twilioCallUpdates.find((item) => item.callSid === callSid), 12000);
         assert.ok(update, `no Twilio transfer update.\n${serverLog.slice(-3000)}`);
         socket.close();
@@ -278,6 +309,60 @@ describe('human gate end to end (real index.js, stubbed Twilio/OpenAI/Resend)', 
         return response.ok ? (await response.json()).call : null;
     };
     const mailsFor = (callSid) => stub.emails.filter((mail) => mail.subject.includes(callSid));
+
+    it('finishes a delayed summary while the media socket is open before redirecting the call', async (t) => {
+        let finishSummary;
+        stub.summaryHandler = (json) => { finishSummary = () => json({ output_text: AI_SUMMARY }); };
+        t.after(() => {
+            stub.summaryHandler = null;
+            finishSummary?.();
+        });
+        const { callSid, twiml } = await startUrgentCall('至急、システム障害の確認をお願いします。', {
+            beforeTransfer: async ({ callSid, socket }) => {
+                assert.ok(await waitFor(() => finishSummary), 'summary request did not start');
+                await sleep(100);
+                assert.equal(socket.readyState, WebSocket.OPEN, 'summary must finish before the active media request closes');
+                assert.equal(stub.twilioCallUpdates.some((update) => update.callSid === callSid), false);
+                finishSummary();
+                finishSummary = null;
+            }
+        });
+        const whisper = await webhook(pathOf(urlsFromTwiml(twiml).whisper), { CallSid: callSid });
+        assert.ok(whisper.body.includes(AI_SUMMARY));
+    });
+
+    for (const failure of ['http_error', 'timeout']) it(`redirects with a heuristic summary after summary ${failure}`, async (t) => {
+        stub.summaryHandler = failure === 'http_error' ? (json) => json({ error: 'unavailable' }, 503) : () => {};
+        t.after(() => { stub.summaryHandler = null; });
+        const started = Date.now();
+        const { callSid, twiml } = await startUrgentCall('至急、システムが動かないため確認をお願いします。');
+        assert.ok(Date.now() - started < 3000, 'failed summary must not strand the transfer');
+        const whisper = await webhook(pathOf(urlsFromTwiml(twiml).whisper), { CallSid: callSid });
+        assert.equal(whisper.status, 200);
+        assert.ok(!whisper.body.includes(AI_SUMMARY));
+        assert.match(whisper.body, /至急|システム/);
+    });
+
+    it('rechecks the caller lifecycle after waiting for a summary', async (t) => {
+        let finishSummary;
+        stub.summaryHandler = (json) => { finishSummary = () => json({ output_text: AI_SUMMARY }); };
+        t.after(() => {
+            stub.summaryHandler = null;
+            finishSummary?.();
+        });
+        const { callSid } = await startUrgentCall('至急、担当者による確認が必要です。', {
+            expectTransfer: false,
+            beforeTransfer: async ({ socket }) => {
+                assert.ok(await waitFor(() => finishSummary));
+                socket.close();
+                assert.ok(await waitFor(() => socket.readyState === WebSocket.CLOSED, 1000));
+                finishSummary();
+                finishSummary = null;
+            }
+        });
+        assert.ok(await waitFor(() => serverLog.includes('gate_denied:call_not_active'), 2000), 'lifecycle must be evaluated after the summary wait');
+        assert.equal(stub.twilioCallUpdates.some((update) => update.callSid === callSid), false, 'a disconnected caller must not be redirected');
+    });
 
     it('urgent caller -> transfer to the human number with an AI summary and signed webhooks', async () => {
         const { callSid, twiml, update } = await startUrgentCall('御社に納品してもらった画面が動かなくなったので、至急見てほしいです。');

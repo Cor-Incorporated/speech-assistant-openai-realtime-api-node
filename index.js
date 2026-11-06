@@ -44,7 +44,7 @@ import {
     updateTwilioCallTwiml
 } from './lib/handoff.js';
 import { registerHandoffRoutes } from './lib/handoff-routes.js';
-import { initialSummaryState, runHandoffSummary } from './lib/handoff-summary.js';
+import { initialSummaryState, runHandoffSummary, waitForHandoffSummaryBeforeTransfer } from './lib/handoff-summary.js';
 import { createHandoffOutcomeHandler } from './lib/handoff-outcome.js';
 import { resolveUrgentDestination, shouldAutoStartUrgentHandoff } from './lib/call-disposition.js';
 import {
@@ -1193,16 +1193,21 @@ fastify.register(async (fastify) => {
 
             try {
                 await handoffContextStore.save(callSid, context);
-                // Runs beside the transfer; the whisper webhook waits briefly
-                // for it and otherwise speaks the heuristic summary.
+                // Finish while the media request still supplies CPU on Cloud
+                // Run. Bound the store wait as well as the API request, and
+                // evaluate lifecycle again below in case the caller hung up.
                 if (context.summaryStatus === 'pending') {
-                    void runHandoffSummary({
+                    const summaryPromise = runHandoffSummary({
                         store: handoffContextStore,
                         callSid,
                         turns: session.turns.map((turn) => ({ ...turn })),
                         config: HANDOFF_CONFIG,
                         apiKey: OPENAI_API_KEY,
                         defaultModel: EXTRACTION_MODEL
+                    });
+                    await waitForHandoffSummaryBeforeTransfer({
+                        summaryPromise,
+                        timeoutMs: HANDOFF_CONFIG.summaryTimeoutMs + 1000
                     });
                 }
 
