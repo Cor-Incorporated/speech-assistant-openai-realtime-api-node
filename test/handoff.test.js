@@ -272,3 +272,39 @@ test('handoff context store supports in-memory UAT mode', async () => {
         updatedAt: (await store.get('CA_TEST')).updatedAt
     });
 });
+
+test('human gate defaults: voicemail fallback, AI summary on, bounded timings', () => {
+    const config = buildHandoffConfig({ HANDOFF_ENABLED: 'true', HANDOFF_NUMBERS: '+810000000000' });
+    assert.equal(config.fallbackMode, 'voicemail');
+    assert.equal(config.voicemailMaxSeconds, 120);
+    assert.equal(config.voicemailTranscribeEnabled, true);
+    assert.equal(config.summaryEnabled, true);
+    assert.equal(config.summaryWaitMs, 3000);
+
+    const custom = buildHandoffConfig({
+        HANDOFF_FALLBACK_MODE: 'AI_RECEPTION',
+        VOICEMAIL_MAX_SECONDS: 9999,
+        VOICEMAIL_TRANSCRIBE_ENABLED: 'false',
+        HANDOFF_SUMMARY_ENABLED: 'false',
+        HANDOFF_SUMMARY_WAIT_MS: 99999
+    });
+    assert.equal(custom.fallbackMode, 'ai_reception');
+    assert.equal(custom.voicemailMaxSeconds, 300);
+    assert.equal(custom.voicemailTranscribeEnabled, false);
+    assert.equal(custom.summaryEnabled, false);
+    assert.equal(custom.summaryWaitMs, 8000);
+    assert.equal(buildHandoffConfig({ HANDOFF_FALLBACK_MODE: 'unknown' }).fallbackMode, 'voicemail');
+});
+
+test('a single number in HANDOFF_NUMBERS serves both contract and general destinations', () => {
+    const config = buildHandoffConfig({ HANDOFF_ENABLED: 'true', HANDOFF_NUMBERS: '+810000000000' });
+    assert.equal(config.destinationNumbers.contract, '+810000000000');
+    assert.equal(config.destinationNumbers.general, '+810000000000');
+    assert.deepEqual(config.numbers, ['+810000000000']);
+});
+
+test('polite "納得できません" complaints are recognized as complaints', () => {
+    assert.equal(isComplaintCall([{ role: 'user', text: '対応に納得できません。' }]), true);
+    assert.equal(isComplaintCall([{ role: 'user', text: '納得がいきません。' }]), true);
+    assert.equal(isComplaintCall([{ role: 'user', text: '納得しました、ありがとうございます。' }]), false);
+});

@@ -101,3 +101,36 @@ test('Resend client rejects incomplete configuration before network call', async
     assert.equal(result.ok, false);
     assert.equal(result.reason, 'missing_email_configuration');
 });
+
+test('retired and blocklisted recipients never receive notifications even if configured', async () => {
+    const sent = [];
+    const outbox = new NotificationOutbox({
+        enabled: true,
+        apiKey: 'test',
+        to: 'Ops@example.test, K.Isayama@cor-jp.com',
+        cc: 'k.isayama@cor-jp.com, old@example.test, keep@example.test',
+        blocklist: 'old@example.test',
+        from: 'noreply@example.test',
+        fetchImpl: async (_url, options) => {
+            sent.push(JSON.parse(options.body));
+            return new Response(JSON.stringify({ id: 'email_1' }), { status: 200 });
+        }
+    });
+
+    await outbox.enqueue({ kind: 'call-summary', callId: 'CA_REAL_9', subject: 's', text: 't' });
+    assert.deepEqual(sent[0].to, ['Ops@example.test']);
+    assert.deepEqual(sent[0].cc, ['keep@example.test']);
+    assert.equal(outbox.removedRecipients, 3);
+});
+
+test('notification outbox skips instead of sending when every recipient was removed', async () => {
+    const outbox = new NotificationOutbox({
+        enabled: true,
+        apiKey: 'test',
+        to: 'k.isayama@cor-jp.com',
+        from: 'noreply@example.test',
+        fetchImpl: async () => { throw new Error('must not send'); }
+    });
+    const result = await outbox.enqueue({ kind: 'call-summary', callId: 'CA_REAL_10', subject: 's', text: 't' });
+    assert.deepEqual(result, { ok: false, skipped: true, reason: 'no_recipients' });
+});

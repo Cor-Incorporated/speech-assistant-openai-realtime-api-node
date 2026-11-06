@@ -38,14 +38,14 @@ import {
     summarizeHandoffTurns,
     summarizeHandoffWhisper,
     isComplaintCall,
-    isContractRequest,
     isEmergencyCall,
     isNonHandoffBusinessCall,
     isSalesBusinessCall,
-    isHandoffCallConnected,
-    shouldAutoHandoffGeneral,
     updateTwilioCallTwiml
 } from './lib/handoff.js';
+import { registerHandoffRoutes } from './lib/handoff-routes.js';
+import { initialSummaryState, runHandoffSummary } from './lib/handoff-summary.js';
+import { resolveUrgentDestination, shouldAutoStartUrgentHandoff } from './lib/call-disposition.js';
 import {
     buildComplexRealtimeInstructions,
     classifyRealtimeConversation,
@@ -53,13 +53,10 @@ import {
 } from './lib/realtime-escalation.js';
 import { buildCallSummaryEmailText, NotificationOutbox } from './lib/notification-outbox.js';
 import {
-    buildDialStatusTwiml,
     buildDtmfGatewayTwiml,
     buildGatewayRouteTwiml,
     buildHandoffDialTwiml,
-    buildMediaStreamTwimlWithParams,
-    buildWhisperConfirmTwiml,
-    buildWhisperTwiml
+    buildMediaStreamTwimlWithParams
 } from './lib/twiml.js';
 import { RuntimeSettingsStore } from './lib/runtime-settings-store.js';
 import { getRuntimeConfig } from './lib/runtime-config.js';
@@ -183,6 +180,13 @@ const {
     HANDOFF_WHISPER_ACCEPT_DIGIT = '1',
     HANDOFF_WHISPER_REJECT_DIGIT = '2',
     HANDOFF_CALLER_ID = '',
+    HANDOFF_FALLBACK_MODE = 'voicemail',
+    VOICEMAIL_MAX_SECONDS = '120',
+    VOICEMAIL_TRANSCRIBE_ENABLED = 'true',
+    HANDOFF_SUMMARY_ENABLED = 'true',
+    HANDOFF_SUMMARY_MODEL = '',
+    HANDOFF_SUMMARY_TIMEOUT_MS = '4000',
+    HANDOFF_SUMMARY_WAIT_MS = '3000',
     GOOGLE_CLOUD_PROJECT = '',
     CALL_LOG_FIRESTORE_ENABLED = 'false',
     CALL_LOG_FIRESTORE_DATABASE_ID = '',
@@ -194,6 +198,7 @@ const {
     NOTIFY_EMAIL_ENABLED = 'false',
     NOTIFY_EMAIL_TO = '',
     NOTIFY_EMAIL_CC = '',
+    NOTIFY_EMAIL_BLOCKLIST = '',
     NOTIFY_EMAIL_FROM = '',
     RESEND_API_KEY = '',
     SYSTEM_MESSAGE = DEFAULT_SYSTEM_MESSAGE,
@@ -257,7 +262,14 @@ const HANDOFF_CONFIG = buildHandoffConfig({
     HANDOFF_DIAL_TIMEOUT_S,
     HANDOFF_WHISPER_ACCEPT_DIGIT,
     HANDOFF_WHISPER_REJECT_DIGIT,
-    HANDOFF_CALLER_ID
+    HANDOFF_CALLER_ID,
+    HANDOFF_FALLBACK_MODE,
+    VOICEMAIL_MAX_SECONDS,
+    VOICEMAIL_TRANSCRIBE_ENABLED,
+    HANDOFF_SUMMARY_ENABLED,
+    HANDOFF_SUMMARY_MODEL,
+    HANDOFF_SUMMARY_TIMEOUT_MS,
+    HANDOFF_SUMMARY_WAIT_MS
 });
 const CALL_END_CONFIG = buildCallEndConfig({
     CALL_END_WORKFLOW_ENABLED,
@@ -320,6 +332,7 @@ const notificationOutbox = new NotificationOutbox({
     apiKey: RESEND_API_KEY,
     to: NOTIFY_EMAIL_TO,
     cc: NOTIFY_EMAIL_CC,
+    blocklist: NOTIFY_EMAIL_BLOCKLIST,
     from: NOTIFY_EMAIL_FROM,
     firestoreEnabled: CALL_LOG_FIRESTORE_ENABLED,
     firestoreDatabaseId: CALL_LOG_FIRESTORE_DATABASE_ID,
@@ -699,127 +712,18 @@ fastify.all('/gateway/route', async (request, reply) => {
     return sendTwiml(reply, twimlResponse);
 });
 
-fastify.post('/handoff/whisper', async (request, reply) => {
-    const callSid = request.query?.call_sid || request.body?.CallSid || '';
-    if (!HANDOFF_CONFIG.enabled) return reply.code(404).send({ error: 'handoff_disabled' });
-    if (!isValidTwilioWebhook({ request })) return reply.code(403).send('Forbidden');
-
-    const context = await handoffContextStore.get(callSid);
-    const summary = context?.whisperSummary || context?.summary || '受付内容の確認';
-    await handoffContextStore.update(callSid, { status: 'whisper_started' });
-    auditLog('handoff.whisper.started', {
-        actor: 'twilio',
-        target: callSid,
-        metadata: { hasSummary: Boolean(context?.summary) }
-    });
-
-    return sendTwiml(reply, buildWhisperTwiml({
-        summary,
-        acceptDigit: HANDOFF_CONFIG.whisperAcceptDigit,
-        rejectDigit: HANDOFF_CONFIG.whisperRejectDigit,
-        confirmUrl: getPublicUrl(request, `/handoff/whisper-confirm?call_sid=${encodeURIComponent(callSid)}`)
-    }));
-});
-
-fastify.post('/handoff/whisper-confirm', async (request, reply) => {
-    const callSid = request.query?.call_sid || request.body?.CallSid || '';
-    if (!HANDOFF_CONFIG.enabled) return reply.code(404).send({ error: 'handoff_disabled' });
-    if (!isValidTwilioWebhook({ request })) return reply.code(403).send('Forbidden');
-
-    const digits = String(request.body?.Digits || '');
-    const accepted = digits === HANDOFF_CONFIG.whisperAcceptDigit;
-    const rejectedToCallCenter = digits === HANDOFF_CONFIG.whisperRejectDigit;
-    await handoffContextStore.update(callSid, {
-        status: accepted ? 'whisper_accepted' : 'whisper_rejected',
-        whisperAccepted: accepted,
-        whisperRejectDigit: rejectedToCallCenter ? digits : ''
-    });
-    auditLog('handoff.whisper.completed', {
-        actor: 'twilio',
-        target: callSid,
-        metadata: { accepted }
-    });
-    return sendTwiml(reply, buildWhisperConfirmTwiml({ accepted, rejectedToCallCenter }));
-});
-
-fastify.post('/handoff/leg-status', async (request, reply) => {
-    const callSid = request.query?.call_sid || request.body?.CallSid || '';
-    if (!HANDOFF_CONFIG.enabled) return reply.code(404).send({ error: 'handoff_disabled' });
-    if (!isValidTwilioWebhook({ request })) return reply.code(403).send('Forbidden');
-
-    auditLog('handoff.leg.status', {
-        actor: 'twilio',
-        target: callSid,
-        metadata: {
-            callStatus: request.body?.CallStatus || '',
-            dialCallStatus: request.body?.DialCallStatus || '',
-            duration: request.body?.DialCallDuration || ''
-        }
-    });
-    return reply.code(204).send();
-});
-
-fastify.post('/handoff/dial-status', async (request, reply) => {
-    const callSid = request.query?.call_sid || request.body?.CallSid || '';
-    if (!HANDOFF_CONFIG.enabled) return reply.code(404).send({ error: 'handoff_disabled' });
-    if (!isValidTwilioWebhook({ request })) return reply.code(403).send('Forbidden');
-
-    let context = null;
-    try {
-        context = await handoffContextStore.get(callSid);
-    } catch (error) {
-        console.error('Failed to load handoff dial context:', error.message);
-    }
-    const whisperRejected = context?.status === 'whisper_rejected';
-    const connected = isHandoffCallConnected(request.body?.DialCallStatus, context);
-    let fallbackTwiml = '';
-    if (!connected) {
-        const text = [
-            '担当者への転送が成立しませんでした。',
-            context?.summary ? `受付内容: ${context.summary}` : '受付内容は管理画面で確認してください。',
-            '通話はコールセンターへ戻り、残りの情報を確認して受付を完了します。'
-        ].join('\n');
-        try {
-            await notificationOutbox.enqueue({
-                kind: 'handoff-fallback',
-                callId: callSid,
-                subject: `【電話受付】担当者不応答 ${callSid}`,
-                text
-            });
-        } catch (error) {
-            // Notification failure must not strand the caller in the Dial leg.
-            console.error('Failed to enqueue handoff fallback notification:', error.message);
-        }
-        try {
-            await handoffContextStore.update(callSid, {
-                status: 'fallback_returned',
-                dialCallStatus: request.body?.DialCallStatus || ''
-            });
-        } catch (error) {
-            console.error('Failed to update handoff fallback context:', error.message);
-        }
-        fallbackTwiml = buildMediaStreamTwimlWithParams({
-            host: request.headers.host,
-            from: request.body?.From || '',
-            to: request.body?.To || '',
-            handoffFallback: true,
-            introMessage: '担当者におつなぎできなかったため、引き続きコールセンターでご用件を確認いたします。',
-            streamToken: createStreamToken({ callSid, secret: TWILIO_AUTH_TOKEN })
-        });
-    } else {
-        await handoffContextStore.update(callSid, { status: 'connected', dialCallStatus: 'completed' });
-    }
-
-    auditLog('handoff.dial.completed', {
-        actor: 'twilio',
-        target: callSid,
-        metadata: {
-            dialCallStatus: request.body?.DialCallStatus || '',
-            connected,
-            whisperRejected
-        }
-    });
-    return sendTwiml(reply, connected ? buildDialStatusTwiml({ connected }) : fallbackTwiml);
+fastify.register(registerHandoffRoutes, {
+    config: HANDOFF_CONFIG,
+    contextStore: handoffContextStore,
+    notificationOutbox,
+    isValidTwilioWebhook,
+    getPublicUrl,
+    createStreamToken: ({ callSid }) => createStreamToken({ callSid, secret: TWILIO_AUTH_TOKEN }),
+    twilioAuthToken: TWILIO_AUTH_TOKEN,
+    openAiApiKey: OPENAI_API_KEY,
+    transcriptionModel: TRANSCRIPTION_MODEL,
+    adminPreHandler: requireAdminAppAuth,
+    auditLog
 });
 
 // メディアストリーム用のWebSocketルート
@@ -1250,11 +1154,13 @@ fastify.register(async (fastify) => {
             }, CALL_END_CONFIG.markTimeoutMs);
         };
 
-        const startHandoff = async ({ reason, destination = 'general' } = {}) => {
+        const startHandoff = async ({ reason, destination = 'general', trigger = 'model_tool' } = {}) => {
             // Atomic claim: the starting flag is set synchronously so a second
             // trigger racing through the same session cannot double-dial.
+            // Callers must NOT pre-set `starting` — that would make this
+            // claim return early and the transfer would never be dialed.
             if (session.handoff?.started || session.handoff?.starting) return;
-            session.handoff = { ...(session.handoff || {}), starting: true };
+            session.handoff = { ...(session.handoff || {}), starting: true, trigger };
 
             const callSid = session.callSid || session.id;
             const selectedDestination = HANDOFF_CONFIG.destinationNumbers[destination]
@@ -1270,6 +1176,7 @@ fastify.register(async (fastify) => {
                 destination: selectedDestination,
                 summary: summary || '受付内容を管理画面で確認してください。',
                 whisperSummary,
+                ...initialSummaryState({ config: HANDOFF_CONFIG, apiKey: OPENAI_API_KEY }),
                 from: maskPhone(session.from),
                 to: maskPhone(session.to),
                 status: 'requested',
@@ -1278,6 +1185,18 @@ fastify.register(async (fastify) => {
 
             try {
                 await handoffContextStore.save(callSid, context);
+                // Runs beside the transfer; the whisper webhook waits briefly
+                // for it and otherwise speaks the heuristic summary.
+                if (context.summaryStatus === 'pending') {
+                    void runHandoffSummary({
+                        store: handoffContextStore,
+                        callSid,
+                        turns: session.turns.map((turn) => ({ ...turn })),
+                        config: HANDOFF_CONFIG,
+                        apiKey: OPENAI_API_KEY,
+                        defaultModel: EXTRACTION_MODEL
+                    });
+                }
 
                 // The transfer TwiML update is a Twilio REST side effect —
                 // it runs only after the shared ActionGate verifies lifecycle,
@@ -1996,24 +1915,13 @@ fastify.register(async (fastify) => {
                 }));
             }
 
-            const urgentHumanSupport = shouldAutoHandoffGeneral(session.turns)
-                && classification.tier !== 'complex_complaint';
             if (
                 HANDOFF_CONFIG.enabled
-                && urgentHumanSupport
-                && !isEmergencyCall(session.turns)
+                && shouldAutoStartUrgentHandoff(session.turns, classification)
                 && !session.handoff?.started
                 && !session.handoff?.starting
-                && !isNonHandoffBusinessCall(session.turns)
             ) {
-                const urgentDestination = isContractRequest(session.turns)
-                    ? 'contract'
-                    : 'general';
-                session.handoff = {
-                    ...(session.handoff || {}),
-                    starting: true,
-                    trigger: 'urgent_human_support'
-                };
+                const urgentDestination = resolveUrgentDestination(session.turns);
                 auditLog('handoff.auto_triggered', {
                     actor: 'system',
                     target: session.callSid || sessionId,
@@ -2025,7 +1933,8 @@ fastify.register(async (fastify) => {
                 });
                 void startHandoff({
                     reason: '緊急の人間対応',
-                    destination: urgentDestination
+                    destination: urgentDestination,
+                    trigger: 'urgent_human_support'
                 });
             }
         };
@@ -2486,24 +2395,13 @@ fastify.register(async (fastify) => {
                             if (escalateRealtimeModel(classification)) return;
                         }
 
-                        const urgentHumanSupport = shouldAutoHandoffGeneral(session.turns)
-                            && classification.tier !== 'complex_complaint';
                         if (
                             HANDOFF_CONFIG.enabled
-                            && urgentHumanSupport
-                            && !isEmergencyCall(session.turns)
+                            && shouldAutoStartUrgentHandoff(session.turns, classification)
                             && !session.handoff?.started
                             && !session.handoff?.starting
-                            && !isNonHandoffBusinessCall(session.turns)
                         ) {
-                            const urgentDestination = isContractRequest(session.turns)
-                                ? 'contract'
-                                : 'general';
-                            session.handoff = {
-                                ...(session.handoff || {}),
-                                starting: true,
-                                trigger: 'urgent_human_support'
-                            };
+                            const urgentDestination = resolveUrgentDestination(session.turns);
                             auditLog('handoff.auto_triggered', {
                                 actor: 'system',
                                 target: session.callSid || sessionId,
@@ -2515,7 +2413,8 @@ fastify.register(async (fastify) => {
                             });
                             void startHandoff({
                                 reason: '緊急の人間対応',
-                                destination: urgentDestination
+                                destination: urgentDestination,
+                                trigger: 'urgent_human_support'
                             });
                             return;
                         }

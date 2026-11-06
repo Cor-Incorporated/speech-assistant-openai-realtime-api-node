@@ -6,6 +6,8 @@ import {
     buildGatewayRouteTwiml,
     buildHandoffDialTwiml,
     buildMediaStreamTwimlWithParams,
+    buildVoicemailThanksTwiml,
+    buildVoicemailTwiml,
     buildWhisperConfirmTwiml,
     buildWhisperTwiml
 } from '../lib/twiml.js';
@@ -79,7 +81,7 @@ test('whisper confirmation keeps accepted leg connected and hangs up rejection',
     assert.match(buildWhisperTwiml({ summary: '資料請求', confirmUrl: 'https://voice.example/confirm' }), /資料請求/);
 });
 
-test('whisper tells the recipient that digit 2 returns the caller to the call center', () => {
+test('whisper asks whether the recipient can take the call now and sends the caller to voicemail on 2', () => {
     const body = buildWhisperTwiml({
         summary: 'イベント開催の相談',
         confirmUrl: 'https://voice.example/confirm',
@@ -88,9 +90,44 @@ test('whisper tells the recipient that digit 2 returns the caller to the call ce
     });
     const rejected = buildWhisperConfirmTwiml({ accepted: false, rejectedToCallCenter: true });
 
-    assert.match(body, /コールセンターに戻す場合は2/);
-    assert.match(rejected, /コールセンターに戻します/);
+    assert.match(body, /イベント開催の相談/);
+    assert.match(body, /今すぐ対応できる場合は1を押してください/);
+    assert.match(body, /今は対応できない場合は2を押してください/);
+    assert.match(body, /入力がない場合は、お客様を留守番電話へご案内します/);
+    assert.match(rejected, /留守番電話へご案内します/);
     assert.match(rejected, /Hangup/);
+});
+
+test('whisper keeps the call-center wording in ai_reception rollback mode', () => {
+    const body = buildWhisperTwiml({
+        summary: 'イベント開催の相談',
+        confirmUrl: 'https://voice.example/confirm',
+        fallbackMode: 'ai_reception'
+    });
+    const rejected = buildWhisperConfirmTwiml({
+        accepted: false,
+        rejectedToCallCenter: true,
+        fallbackMode: 'ai_reception'
+    });
+
+    assert.match(body, /コールセンターに戻す場合は2/);
+    assert.doesNotMatch(body, /留守番電話/);
+    assert.match(rejected, /コールセンターに戻します/);
+});
+
+test('voicemail TwiML announces recording, records with a beep and reports the finished recording', () => {
+    const body = buildVoicemailTwiml({
+        actionUrl: 'https://voice.example/handoff/voicemail-complete?call_sid=CA1',
+        recordingStatusUrl: 'https://voice.example/handoff/recording-status?call_sid=CA1&x=1',
+        maxLengthSeconds: 90
+    });
+
+    assert.match(body, /録音され、担当者が確認いたします/);
+    assert.match(body, /<Record maxLength="90"[^>]*playBeep="true"[^>]*finishOnKey="#"/);
+    assert.match(body, /action="https:\/\/voice\.example\/handoff\/voicemail-complete\?call_sid=CA1"/);
+    assert.match(body, /recordingStatusCallback="https:\/\/voice\.example\/handoff\/recording-status\?call_sid=CA1&amp;x=1"/);
+    assert.match(body, /recordingStatusCallbackEvent="completed"/);
+    assert.match(buildVoicemailThanksTwiml(), /ありがとうございました[\s\S]*Hangup/);
 });
 
 test('whisper identifies the company reception without exposing AI wording', () => {
