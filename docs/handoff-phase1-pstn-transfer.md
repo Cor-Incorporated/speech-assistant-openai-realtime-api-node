@@ -2,6 +2,8 @@
 
 対応ADR: [ADR-0006](./adr/0006-handoff-phase1-pstn-transfer.md) ／ 対応Wave: C1（転送）、C2（Whisper）、C3（不応答フォールバック）
 
+> **2026-11-07 更新**: 転送が成立しなかった場合（2押下・無入力・不在・話中）は、AI受付へ戻さず発信者を留守番電話へ入れる方式に変更した。要約もAI生成になった。詳細は [ADR-0010](./adr/0010-human-gate-voicemail-fallback.md) と [有効化 Runbook](./runbooks/human-gate-activation.md)。以下の図の「不応答フォールバック」は `HANDOFF_FALLBACK_MODE=ai_reception` のときだけ従来どおり動く。
+
 ## ゴール
 
 AIが対応困難と判断した通話を、担当者の携帯電話へ転送する。担当者は文脈（AI要約）を聞いてから応答でき、誰も出られない場合は折り返しフローへ確実に落ちる。
