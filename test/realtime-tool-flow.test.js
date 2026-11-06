@@ -574,3 +574,62 @@ test('an affirmation with no agent readback does not confirm', () => {
     assert.equal(result.callEndRequests.length, 0);
     assert.equal(state.callbackPhone.confirmed, false);
 });
+
+// Sanitized reproduction of the PSTN acceptance call: the provider emitted a
+// short backchannel between a complete phone readback and the caller's yes.
+const phoneReadbackReplay = (between, callerReply = 'はい、電話番号はそれで正しいです。折り返し不要です。') => {
+    const state = {
+        callbackPhone: {
+            valid: true, normalizedPhoneNumber: '+819011112222', confirmed: false,
+            validatedAt: '2026-11-06T17:11:42.000Z'
+        },
+        turns: [
+            { role: 'agent', text: 'はい、少々お待ちください。', at: '2026-11-06T17:11:43.000Z' },
+            { role: 'agent', text: '連絡先は、ゼロ、キュウ、ゼロ、イチ、イチ、イチ、イチ、ニ、ニ、ニ、ニ、です。', at: '2026-11-06T17:11:54.000Z' },
+            ...between,
+            { role: 'user', text: callerReply, at: '2026-11-06T17:11:57.000Z' }
+        ]
+    };
+    const result = handleRealtimeToolCalls({
+        event: toolEvent('finish_reception', 'readback_replay', { reason: '営業情報の受付終了', callback_required: false }),
+        state, callEndConfig: buildCallEndConfig(),
+        handoffConfig: { enabled: true, numbers: ['+810000000000'], requireCallbackContact: true }
+    });
+    return { state, result, output: JSON.parse(result.outputs[0].item.output) };
+};
+
+test('Live pure backchannels preserve a complete phone readback until the caller explicitly confirms', () => {
+    for (const text of ['はい。', '[mouth noise]']) {
+        const { state, result, output } = phoneReadbackReplay([
+            { role: 'agent', text, at: '2026-11-06T17:11:56.000Z' }
+        ]);
+        assert.equal(state.callbackPhone.confirmed, true, text);
+        assert.equal(output.ok, true, text);
+        assert.equal(result.callEndRequests.length, 1, text);
+    }
+});
+
+test('backchannels cannot approve a different number or a new question', () => {
+    for (const text of ['ご連絡先は09033334444でよろしいですか。', 'お名前は？', 'はい？']) {
+        const { state, output } = phoneReadbackReplay([
+            { role: 'agent', text, at: '2026-11-06T17:11:55.000Z' },
+            { role: 'agent', text: 'はい。', at: '2026-11-06T17:11:56.000Z' }
+        ]);
+        assert.equal(state.callbackPhone.confirmed, false, text);
+        assert.equal(output.reason, 'callback_phone_not_confirmed', text);
+    }
+});
+
+test('caller correction and absent confirmation still block completion after a backchannel', () => {
+    const between = [{ role: 'agent', text: 'はい。', at: '2026-11-06T17:11:56.000Z' }];
+    for (const reply of ['いいえ、違います。', '内容は以上です。']) {
+        const { state, output } = phoneReadbackReplay(between, reply);
+        assert.equal(state.callbackPhone.confirmed, false, reply);
+        assert.equal(output.reason, 'callback_phone_not_confirmed', reply);
+    }
+    const { output } = phoneReadbackReplay([
+        { role: 'user', text: 'いいえ、もう一度お願いします。', at: '2026-11-06T17:11:55.000Z' },
+        ...between
+    ]);
+    assert.equal(output.reason, 'callback_phone_not_confirmed');
+});
