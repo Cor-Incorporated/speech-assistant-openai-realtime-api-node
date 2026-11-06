@@ -1,6 +1,6 @@
 # ADR 0010: 人間ゲート — 担当者が今対応できるかを確認し、不可なら留守番電話へ入れる
 
-- ステータス: 採用（本番有効化は人間の確認後。[有効化手順](../runbooks/human-gate-activation.md)）
+- ステータス: 採用（ユーザーのデプロイ承認あり。人間の接続・聴感確認は別ゲート。[有効化手順](../runbooks/human-gate-activation.md)）
 - 日付: 2026-11-07
 - 対象: 人間対応が必要な通話の転送、不成立時のフォールバック、通知
 - 関係: [ADR-0006](./0006-handoff-phase1-pstn-transfer.md) の「不応答フォールバック」を置き換える（転送・Whisperの構成は維持）
@@ -24,7 +24,8 @@ ADR-0006の構成は「1を押さなければ接続しない」までは満た�
 4. **通知先**: `NOTIFY_EMAIL_TO/CC`。廃止済みアドレス（`k.isayama@cor-jp.com`）はコード側で常に除外し、設定に残っていても送らない。`NOTIFY_EMAIL_BLOCKLIST` で追加除外できる。
 5. **録音の取り扱い**: 録音はTwilio側に保管する。管理画面の認証付き経路（`GET /api/admin/voicemails/:recordingSid?call_sid=`）でのみ再生でき、通話ごとの保存済みIDと一致しない要求は拒否する。取得URLはTwilio APIの正規形だけを許可する（SSRF防止）。録音・全文トランスクリプトはリポジトリに入れない。
 6. **ロールバック**: `HANDOFF_FALLBACK_MODE=ai_reception` で従来のAI受付復帰に戻せる（whisperの文言も従来に戻る）。
-7. **判定の一本化**: 「人間ゲートに入るか」の判定を `lib/call-disposition.js` に集約し、本番コードとゴールデンテストが同じ関数を使う。
+7. **非緊急受付**: 非緊急の見積・開発・業務委託もAI受付とメール通知で完結する。緊急の自動転送は `shouldAutoStartUrgentHandoff`、モデルからの転送は `shouldAllowHumanHandoff` と高精度判断の許可で強制する。ゴールデン分類は同じ下位判定を検査し、実サーバーE2Eでツール経路との差異を検査する。
+8. **最終状態と再送**: Media Stream終了だけでは接続成功としない。終端callbackと保存済み受付情報が揃ってから管理記録を更新する。録音のcompleted/absentで1通通知し、Firestoreの送信権とResendの固定キーで重複を抑止する。通知失敗は503、callbackには5xxの再試行を指定する。長期障害はfailed outboxを管理APIから再試行する。
 
 ## 発見・修正した不具合
 

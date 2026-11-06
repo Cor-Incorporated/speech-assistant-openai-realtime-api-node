@@ -53,7 +53,7 @@ env:
   VOICE_PROVIDER: ${{ vars.VOICE_PROVIDER || 'live' }}
   LIVE_MODEL: ${{ vars.LIVE_MODEL || 'gpt-live-1' }}
   LIVE_BACKEND_MODEL: ${{ vars.LIVE_BACKEND_MODEL || 'gpt-5.6-luna' }}
-  LIVE_VOICE: ${{ vars.LIVE_VOICE || 'marin' }}
+  LIVE_VOICE: ${{ vars.LIVE_VOICE || 'harema' }}
   LIVE_AUDIO_FORMAT: ${{ vars.LIVE_AUDIO_FORMAT || 'audio/pcmu' }}
   LIVE_AUDIO_RATE: ${{ vars.LIVE_AUDIO_RATE || '8000' }}
   LIVE_FALLBACK_TO_REALTIME: ${{ vars.LIVE_FALLBACK_TO_REALTIME || 'true' }}
@@ -110,7 +110,7 @@ jobs:
             secret_bindings="$secret_bindings,RESEND_API_KEY=resend-api-key:1"
           fi
           if [ "$HANDOFF_ENABLED" = "true" ]; then
-            secret_bindings="$secret_bindings,HANDOFF_NUMBERS=handoff-numbers:1,HANDOFF_CALLER_ID=handoff-caller-id:1"
+            secret_bindings="$secret_bindings,HANDOFF_NUMBERS=handoff-numbers:2,HANDOFF_CALLER_ID=handoff-caller-id:1"
           fi
           if [ "$ROUTING_PROVIDER" != "legacy" ]; then
             secret_bindings="$secret_bindings,TYPESAFE_API_KEY=typesafe-api-key:1"
