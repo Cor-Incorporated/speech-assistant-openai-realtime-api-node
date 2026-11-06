@@ -28,15 +28,17 @@ const ws = new WebSocket(url, {
     }
 });
 let receivedMedia = false;
+let inputTimer;
 
 const timeout = setTimeout(() => {
+    clearInterval(inputTimer);
     console.error(`not ok - timed out after ${timeoutMs}ms waiting for outbound media`);
     ws.close();
     process.exit(1);
 }, timeoutMs);
 
 ws.on('open', () => {
-    console.log('ok - connected to local media stream WebSocket');
+    console.log('ok - connected to media stream WebSocket');
     ws.send(JSON.stringify({
         event: 'connected',
         protocol: 'Call',
@@ -60,26 +62,32 @@ ws.on('open', () => {
         streamSid
     }));
 
-    // 20ms of G.711 mu-law silence. This only primes the audio path; the
-    // assistant's first response is triggered by the server-side text item.
+    // Live needs a continuous audio clock, as supplied by a real Twilio call.
+    // This checks media transport only; returned silence also counts as media.
     const silencePayload = Buffer.alloc(160, 0xff).toString('base64');
-    ws.send(JSON.stringify({
-        event: 'media',
-        sequenceNumber: '2',
-        streamSid,
-        media: {
-            track: 'inbound',
-            chunk: '1',
-            timestamp: '0',
-            payload: silencePayload
-        }
-    }));
+    let frameIndex = 0;
+    inputTimer = setInterval(() => {
+        if (ws.readyState !== WebSocket.OPEN) return;
+        ws.send(JSON.stringify({
+            event: 'media',
+            sequenceNumber: String(frameIndex + 2),
+            streamSid,
+            media: {
+                track: 'inbound',
+                chunk: String(frameIndex + 1),
+                timestamp: String(frameIndex * 20),
+                payload: silencePayload
+            }
+        }));
+        frameIndex += 1;
+    }, 20);
 });
 
 ws.on('message', (raw) => {
     const message = JSON.parse(raw);
     if (message.event === 'media' && message.media?.payload) {
         receivedMedia = true;
+        clearInterval(inputTimer);
         console.log('ok - received outbound media payload from server');
         clearTimeout(timeout);
         ws.close();
@@ -87,12 +95,14 @@ ws.on('message', (raw) => {
 });
 
 ws.on('error', (error) => {
+    clearInterval(inputTimer);
     clearTimeout(timeout);
     console.error(`not ok - WebSocket error: ${error.message}`);
     process.exit(1);
 });
 
 ws.on('close', (code) => {
+    clearInterval(inputTimer);
     clearTimeout(timeout);
     if (!receivedMedia) {
         console.error(`not ok - WebSocket closed with code ${code} before outbound media`);
