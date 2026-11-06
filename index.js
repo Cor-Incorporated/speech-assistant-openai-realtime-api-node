@@ -45,6 +45,7 @@ import {
 } from './lib/handoff.js';
 import { registerHandoffRoutes } from './lib/handoff-routes.js';
 import { initialSummaryState, runHandoffSummary } from './lib/handoff-summary.js';
+import { createHandoffOutcomeHandler } from './lib/handoff-outcome.js';
 import { resolveUrgentDestination, shouldAutoStartUrgentHandoff } from './lib/call-disposition.js';
 import {
     buildComplexRealtimeInstructions,
@@ -413,6 +414,11 @@ await initCallProjection({
     escalationRepo: adminV2.escalationRepo ?? null,
     log: console
 });
+const onHandoffOutcome = createHandoffOutcomeHandler({
+    contextStore: handoffContextStore,
+    notificationOutbox,
+    projectCall: projectProviderCall
+});
 
 // Voice knowledge tool — reads only the current published release through
 // the same repository the admin API writes to. A failed init simply means
@@ -723,6 +729,7 @@ fastify.register(registerHandoffRoutes, {
     openAiApiKey: OPENAI_API_KEY,
     transcriptionModel: TRANSCRIPTION_MODEL,
     adminPreHandler: requireAdminAppAuth,
+    onHandoffOutcome,
     auditLog
 });
 
@@ -1179,6 +1186,7 @@ fastify.register(async (fastify) => {
                 ...initialSummaryState({ config: HANDOFF_CONFIG, apiKey: OPENAI_API_KEY }),
                 from: maskPhone(session.from),
                 to: maskPhone(session.to),
+                callerNumber: session.from || '',
                 status: 'requested',
                 createdAt: new Date().toISOString()
             };
@@ -1268,6 +1276,7 @@ fastify.register(async (fastify) => {
                 session.handoff = {
                     started: true,
                     starting: false,
+                    destination: selectedDestination,
                     reason: context.reason,
                     startedAt: new Date().toISOString()
                 };
@@ -2770,7 +2779,10 @@ fastify.register(async (fastify) => {
                 : await processTranscriptAndSend(session.transcript, session.callSid || sessionId);
             const record = buildCallLogRecord(session, extraction);
             await callLogSinks.recordCompleted(record);
-            const notifyResult = await notificationOutbox.enqueue({
+            // Stream closure is only the beginning of a PSTN handoff. The
+            // final human/voicemail callback sends its one outcome notification.
+            const handoffInProgress = session.handoff?.started || session.handoff?.starting;
+            const notifyResult = handoffInProgress ? null : await notificationOutbox.enqueue({
                 kind: 'call-summary',
                 callId: record.callSid,
                 subject: `【電話受付】${record.intent || '新しい通話受付'} ${record.callSid}`,
@@ -2812,8 +2824,8 @@ fastify.register(async (fastify) => {
                 } : (session.callbackPhone?.valid ? {
                     callbackNumber: session.callbackPhone.normalizedPhoneNumber
                 } : null),
-                callbackRequired: record.callbackRequired === true,
-                outcome: session.handoff?.started && !session.handoff?.failed ? 'transferred'
+                callbackRequired: handoffInProgress || record.callbackRequired === true,
+                outcome: handoffInProgress ? 'abandoned'
                     : (session.openAiError || session.liveCloseIncomplete) ? 'failed'
                         : session.turns.length > 0 ? 'completed' : 'abandoned',
                 severity: {
@@ -2826,15 +2838,16 @@ fastify.register(async (fastify) => {
                 handoff: {
                     requested: handoffAttempted,
                     destination: session.handoff?.destination ?? null,
-                    outcome: session.handoff?.failed ? 'failed'
-                        : session.handoff?.started ? 'connected'
-                            : handoffAttempted ? 'timeout' : null,
+                    outcome: session.handoff?.failed ? 'failed' : null,
                     reason: session.handoff?.reason ?? null
                 },
                 knowledgeReleaseIds: (session.knowledgeLookups || [])
                     .map((l) => l.releaseId).filter(Boolean),
                 notificationSent: notifyResult?.ok === true,
                 error: session.openAiError || null
+            });
+            if (handoffInProgress) await onHandoffOutcome(session.callSid || sessionId).catch((error) => {
+                console.error('Failed to reconcile handoff outcome:', error.message);
             });
             auditLog('call.completed', {
                 actor: 'twilio',

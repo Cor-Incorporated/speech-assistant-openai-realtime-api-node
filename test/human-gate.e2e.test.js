@@ -270,10 +270,23 @@ describe('human gate end to end (real index.js, stubbed Twilio/OpenAI/Resend)', 
         whisper: decodeXml(twiml.match(/<Number[^>]* url="([^"]+)"/)[1]),
         dialStatus: decodeXml(twiml.match(/<Dial[^>]* action="([^"]+)"/)[1])
     });
-    const pathOf = (url) => url.replace(publicBase, '');
+    const pathOf = (url) => { const parsed = new URL(url); return parsed.pathname + parsed.search; };
+    const readCall = async (callSid) => {
+        const response = await fetch(`${publicBase}/api/admin/v2/calls/${callSid}`, {
+            headers: { authorization: `Basic ${Buffer.from('admin:e2e-admin-password').toString('base64')}` }
+        });
+        return response.ok ? (await response.json()).call : null;
+    };
+    const mailsFor = (callSid) => stub.emails.filter((mail) => mail.subject.includes(callSid));
 
     it('urgent caller -> transfer to the human number with an AI summary and signed webhooks', async () => {
         const { callSid, twiml, update } = await startUrgentCall('御社に納品してもらった画面が動かなくなったので、至急見てほしいです。');
+        const pending = await waitFor(async () => {
+            const call = await readCall(callSid);
+            return call?.humanCase.state === 'connecting' ? call : null;
+        });
+        assert.equal(pending?.ops.status, 'needs_callback');
+        assert.equal(mailsFor(callSid).length, 0, 'transfer initiation must not send a completed-call email');
 
         assert.equal(update.authorization, `Basic ${Buffer.from(`${ACCOUNT_SID}:${AUTH_TOKEN}`).toString('base64')}`);
         const urls = urlsFromTwiml(twiml);
@@ -297,6 +310,10 @@ describe('human gate end to end (real index.js, stubbed Twilio/OpenAI/Resend)', 
         const dial = await webhook(pathOf(urls.dialStatus), { CallSid: callSid, DialCallStatus: 'completed', From: CALLER });
         assert.match(dial.body, /<Hangup \/>/);
         assert.doesNotMatch(dial.body, /<Record/);
+        assert.equal((await readCall(callSid)).humanCase.state, 'connected');
+        assert.equal((await readCall(callSid)).ops.status, 'done');
+        await webhook(pathOf(urls.dialStatus), { CallSid: callSid, DialCallStatus: 'completed', From: CALLER });
+        assert.equal(mailsFor(callSid).length, 1, 'accepted transfer has exactly one final email even after retry');
     });
 
     it('urgent caller, recipient presses 2 -> caller goes to voicemail -> email with transcript, no retired recipient', async () => {
@@ -313,7 +330,7 @@ describe('human gate end to end (real index.js, stubbed Twilio/OpenAI/Resend)', 
         assert.match(dial.body, /<Record /);
         assert.doesNotMatch(dial.body, /media-stream/);
         const statusCallback = decodeXml(dial.body.match(/recordingStatusCallback="([^"]+)"/)[1]);
-        assert.equal(statusCallback, `${publicBase}/handoff/recording-status?call_sid=${callSid}`);
+        assert.equal(statusCallback, `${publicBase}/handoff/recording-status?call_sid=${callSid}#rc=2&rp=ct,rt,5xx`);
 
         const recorded = await webhook(pathOf(statusCallback), {
             CallSid: callSid,
@@ -332,6 +349,9 @@ describe('human gate end to end (real index.js, stubbed Twilio/OpenAI/Resend)', 
         assert.ok(voicemailMail.text.includes(VOICEMAIL_TEXT));
         assert.ok(voicemailMail.text.includes(`発信者番号（Twilio）: ${CALLER}`));
         assert.ok(voicemailMail.text.includes(AI_SUMMARY));
+        assert.equal(mailsFor(callSid).length, 1, 'one voicemail email replaces the premature stream-close summary');
+        assert.equal((await readCall(callSid)).humanCase.state, 'unavailable');
+        assert.equal((await readCall(callSid)).ops.status, 'needs_callback');
         assert.match(stub.recordingDownloads.at(-1).authorization, /^Basic /);
 
         for (const mail of stub.emails) {
@@ -355,20 +375,10 @@ describe('human gate end to end (real index.js, stubbed Twilio/OpenAI/Resend)', 
         assert.doesNotMatch(dial.body, /handoff_fallback/);
     });
 
-    it('non-urgent development request -> backend asks for a human -> same human number via the contract route', async () => {
-        const { callSid, twiml } = await startUrgentCall(
-            '新しい予約システムの開発をお願いしたいのですが、見積もりをいただけますか。',
-            { toolCall: { reason: '開発の見積依頼', destination: 'contract' } }
-        );
-        const urls = urlsFromTwiml(twiml);
-        assert.equal(urls.number, HUMAN_NUMBER);
-        const whisper = await webhook(pathOf(urls.whisper), { CallSid: callSid });
-        assert.match(whisper.body, /今すぐ対応できる場合は1を押してください/);
-        const dial = await webhook(pathOf(urls.dialStatus), { CallSid: callSid, DialCallStatus: 'busy', From: CALLER });
-        assert.match(dial.body, /<Record /);
-    });
-
-    it('a sales call never reaches the human number even if the backend tries to transfer it', async () => {
+    for (const scenario of [
+        { name: 'a non-urgent development inquiry', utterance: '新しい予約システムの開発をお願いしたいのですが、見積もりをいただけますか。', destination: 'contract' },
+        { name: 'a sales call', utterance: '弊社の新しい広告サービスをご紹介したくお電話しました。', destination: 'general' }
+    ]) it(`${scenario.name} stays with AI even if the backend tries to transfer it`, async () => {
         callCounter += 1;
         const callSid = `CA${String(callCounter).padStart(2, '0')}${'0'.repeat(30)}`;
         const token = createStreamToken({ callSid, secret: AUTH_TOKEN });
@@ -382,9 +392,9 @@ describe('human gate end to end (real index.js, stubbed Twilio/OpenAI/Resend)', 
         }));
         const conn = await waitFor(() => provider.connections[connIndex]);
         assert.ok(await waitFor(() => conn.messages.some((m) => m.type === 'session.start')));
-        conn.socket.send(JSON.stringify({ type: 'session.input_transcript.delta', delta: '弊社の新しい広告サービスをご紹介したくお電話しました。', start_ms: 0, end_ms: 2000 }));
+        conn.socket.send(JSON.stringify({ type: 'session.input_transcript.delta', delta: scenario.utterance, start_ms: 0, end_ms: 2000 }));
         await sleep(400);
-        injectToolCall(conn, 'transfer_to_human', { reason: '営業', destination: 'general' });
+        injectToolCall(conn, 'transfer_to_human', { reason: scenario.name, destination: scenario.destination });
         await sleep(1500);
         assert.equal(stub.twilioCallUpdates.some((item) => item.callSid === callSid), false);
 
@@ -397,5 +407,6 @@ describe('human gate end to end (real index.js, stubbed Twilio/OpenAI/Resend)', 
         assert.deepEqual(summaryMail.cc, ['team@example.test']);
         assert.ok(summaryMail.text.includes(`発信者番号（Twilio）: ${CALLER}`));
         assert.ok(!JSON.stringify(summaryMail).includes('isayama'));
+        assert.equal(mailsFor(callSid).length, 1);
     });
 });
