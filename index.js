@@ -84,6 +84,7 @@ import {
     validateTwilioSignature
 } from './lib/security.js';
 import { createStreamToken, verifyMediaStreamRequest, verifyStreamToken } from './lib/stream-auth.js';
+import { createAdminPermissionGuard } from './lib/admin-access.js';
 import { createActionGateRuntime } from './lib/action-gate-runtime.js';
 import { initAdminV2Services } from './lib/admin-v2-runtime.js';
 import { initCallProjection, projectProviderCall } from './lib/call-projection-runtime.js';
@@ -427,7 +428,7 @@ await initKnowledgeTool({ knowledgeRepo: adminV2.knowledgeRepo ?? null, log: con
 const KNOWLEDGE_TOOL_DEF = getKnowledgeToolDef();
 
 fastify.post('/api/admin/notifications/retry/:outboxId', {
-    preHandler: requireAdminAppAuth
+    preHandler: createAdminPermissionGuard({ auth: adminAuth, permission: 'notifications.retry', auditLog })
 }, async (request, reply) => {
     if (!notificationOutbox.isEnabled()) {
         return reply.code(503).send({ error: 'notification_outbox_disabled' });
@@ -728,7 +729,7 @@ fastify.register(registerHandoffRoutes, {
     twilioAuthToken: TWILIO_AUTH_TOKEN,
     openAiApiKey: OPENAI_API_KEY,
     transcriptionModel: TRANSCRIPTION_MODEL,
-    adminPreHandler: requireAdminAppAuth,
+    adminPreHandler: createAdminPermissionGuard({ auth: adminAuth, permission: 'calls.read_pii', auditLog }),
     onHandoffOutcome,
     auditLog
 });
