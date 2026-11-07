@@ -4,6 +4,7 @@
 
 import type { CallCorrection, CallRecord } from './call-schemas.js';
 import { VersionConflictError } from '../knowledge/repository.js';
+import { memoryRecordPage } from '../pagination/record-page.js';
 
 export { VersionConflictError };
 
@@ -66,6 +67,14 @@ const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;
 
 const SEVERITY_ORDER = ['low', 'normal', 'high', 'critical'] as const;
 
+export const callMatchesFilter = (record: CallRecord, filter: ListCallsFilter): boolean =>
+    (filter.includeDeleted || !record.deletedAt) &&
+    (!filter.businessState || record.ops.status === filter.businessState) &&
+    (!filter.origin || record.origin === filter.origin) &&
+    (!filter.severityMin || SEVERITY_ORDER.indexOf(record.severity.importance as typeof SEVERITY_ORDER[number]) >= SEVERITY_ORDER.indexOf(filter.severityMin));
+export const callPageScope = (filter: ListCallsFilter): string =>
+    JSON.stringify(['calls', filter.businessState ?? null, filter.origin ?? null, !!filter.includeDeleted, filter.severityMin ?? null]);
+
 export class InMemoryCallRepository implements CallRepository {
     private readonly calls = new Map<string, CallRecord>();
     private readonly corrections = new Map<string, Map<string, CallCorrection>>();
@@ -96,32 +105,13 @@ export class InMemoryCallRepository implements CallRepository {
     }
 
     async list(filter: ListCallsFilter = {}): Promise<ListCallsResult> {
-        const limit = Math.min(Math.max(filter.limit ?? 50, 1), 200);
-        let items = [...this.calls.values()];
-        if (!filter.includeDeleted) items = items.filter((r) => !r.deletedAt);
-        if (filter.businessState) items = items.filter((r) => r.ops.status === filter.businessState);
-        if (filter.origin) items = items.filter((r) => r.origin === filter.origin);
-        if (filter.severityMin) {
-            const min = SEVERITY_ORDER.indexOf(filter.severityMin);
-            items = items.filter((r) => {
-                const idx = SEVERITY_ORDER.indexOf(r.severity.importance as typeof SEVERITY_ORDER[number]);
-                return idx >= min;
-            });
-        }
-        items.sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? '') || a.callId.localeCompare(b.callId));
-
-        const startIndex = filter.cursor
-            ? items.findIndex((r) => r.callId === filter.cursor) + 1
-            : 0;
-        const start = startIndex > 0 ? startIndex : filter.cursor ? items.length : 0;
-        const page = items.slice(start, start + limit);
-        const hasMore = start + limit < items.length;
-        return {
-            items: page.map(clone),
-            nextCursor: hasMore && page.length > 0 ? page[page.length - 1]!.callId : null,
-            hasMore,
-            partial: hasMore
-        };
+        const result = memoryRecordPage([...this.calls.values()], {
+            ...filter,
+            scope: callPageScope(filter),
+            position: (record) => ({ key: record.startedAt, id: record.callId }),
+            include: (record) => callMatchesFilter(record, filter)
+        });
+        return { ...result, items: result.items.map(clone) };
     }
 
     async addCorrection(correction: CallCorrection): Promise<CallCorrection> {
