@@ -32,6 +32,19 @@ test('realtime input gate accepts meaningful Japanese, phone digits, and configu
     }
 });
 
+test('realtime input gate requires boundaries around allowed Latin terms', () => {
+    const config = buildRealtimeInputGateConfig({});
+    for (const transcript of ['password', 'machine', 'Macaroni', 'rpc', 'Swordfish', 'some_word']) {
+        assert.equal(evaluateRealtimeInputTranscript(transcript, config).accepted, false, transcript);
+    }
+    for (const transcript of ['PC', 'pc?', 'Wi-Fi', 'a Mac', 'Word.', 'PCが']) {
+        assert.equal(evaluateRealtimeInputTranscript(transcript, config).accepted, true, transcript);
+    }
+    const literalConfig = buildRealtimeInputGateConfig({ REALTIME_INPUT_GATE_ALLOWED_TERMS: 'C++' });
+    assert.equal(evaluateRealtimeInputTranscript('C++', literalConfig).accepted, true);
+    assert.equal(evaluateRealtimeInputTranscript('ABC++', literalConfig).accepted, false);
+});
+
 test('realtime input gate can be disabled by environment', () => {
     const config = buildRealtimeInputGateConfig({
         REALTIME_INPUT_GATE_ENABLED: 'false'
