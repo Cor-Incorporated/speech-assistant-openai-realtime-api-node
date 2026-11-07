@@ -68,6 +68,7 @@ describe('live-session helpers', () => {
                 audioFormatType: 'audio/pcmu',
                 audioRate: 8000,
                 instructions: 'inst',
+                openingInstructions: '今すぐ日本語で挨拶してください。',
                 delegationResponses: {
                     model: 'gpt-5.6-luna',
                     instructions: 'backend',
@@ -80,6 +81,10 @@ describe('live-session helpers', () => {
             assert.equal(start.session.audio.format.type, 'audio/pcmu');
             assert.equal(start.session.audio.format.rate, 8000);
             assert.equal(start.session.audio.output.voice, 'marin');
+            assert.deepEqual(start.session.input, [{
+                type: 'message', role: 'developer',
+                content: [{ type: 'input_text', text: '今すぐ日本語で挨拶してください。' }]
+            }]);
             assert.equal(start.session.delegation.type, 'responses');
             assert.equal(start.session.delegation.responses.model, 'gpt-5.6-luna');
             assert.equal(start.session.delegation.responses.tool_choice, 'auto');
@@ -95,6 +100,7 @@ describe('live-session helpers', () => {
                 delegationResponses: null
             });
             assert.equal(start.session.delegation, undefined);
+            assert.equal(start.session.input, undefined);
         });
     });
 

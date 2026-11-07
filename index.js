@@ -69,6 +69,7 @@ import {
     createLiveAudioCodec,
     createLiveDelegationTracker,
     liveAudioAppend,
+    liveCommentaryAppend,
     liveInstructionsAppend,
     liveItemCreate,
     liveResponseCreate,
@@ -935,6 +936,7 @@ fastify.register(async (fastify) => {
         const liveState = {
             started: false,
             startTimer: null,
+            openingPending: false,
             codec: createLiveAudioCodec({
                 inputFormatType: LIVE_AUDIO_FORMAT,
                 inputRate: Number(LIVE_AUDIO_RATE)
@@ -953,6 +955,15 @@ fastify.register(async (fastify) => {
             drainTimer: null,
             closeSent: false
         };
+        const clearLiveStartTimer = () => {
+            if (liveState.startTimer) clearTimeout(liveState.startTimer);
+            liveState.startTimer = null;
+        };
+        const settleLiveOpening = () => {
+            if (!liveState.openingPending) return;
+            liveState.openingPending = false;
+            clearLiveStartTimer();
+        };
         let realtimeSocketReady = false;
         let responseInProgress = false;
         let responseCreatePending = false;
@@ -970,7 +981,7 @@ fastify.register(async (fastify) => {
         };
         const failActiveProvider = (reason) => {
             if (!['starting', 'active'].includes(callLifecycle.phase)
-                || session.handoff?.started || session.callEnd?.completed) return;
+                || (session.handoff?.started && !session.handoffFallback) || session.callEnd?.completed) return;
             clearProviderErrorDeadline();
             session.openAiError = session.openAiError || reason;
             auditLog('voice.provider.failed', {
@@ -1243,6 +1254,7 @@ fastify.register(async (fastify) => {
             // claim return early and the transfer would never be dialed.
             if (session.handoff?.started || session.handoff?.starting) return;
             session.handoff = { ...(session.handoff || {}), starting: true, trigger };
+            settleLiveOpening();
 
             const callSid = session.callSid || session.id;
             const selectedDestination = HANDOFF_CONFIG.destinationNumbers[destination]
@@ -1392,6 +1404,7 @@ fastify.register(async (fastify) => {
         // the provider before the shared response.create. The result also
         // records which release answered the call for later audit.
         const handleKnowledgeToolCalls = async (event) => {
+            const ownerSocket = openAiWs;
             const calls = [
                 ...(KNOWLEDGE_TOOL_DEF ? findKnowledgeToolCalls(event) : []),
                 ...findBusinessHoursToolCalls(event).map((call) => ({ ...call, businessHours: true }))
@@ -1402,6 +1415,8 @@ fastify.register(async (fastify) => {
                     const output = toolCall.businessHours
                         ? executeBusinessHoursCall(toolCall)
                         : await executeKnowledgeCall(toolCall);
+                    // An old provider cannot publish results into its replacement.
+                    if (ownerSocket !== openAiWs) return false;
                     const meta = output._meta;
                     delete output._meta;
                     auditLog(toolCall.businessHours ? 'business_hours.lookup' : 'knowledge.lookup', {
@@ -1926,6 +1941,13 @@ fastify.register(async (fastify) => {
             }
         };
 
+        const buildLiveOpeningInstructions = () => {
+            const firstMessage = session.handoffFallback
+                ? 'では、先ほどの内容について、まだ伺えていない情報を一つずつ確認させてください。'
+                : FIRST_MESSAGE;
+            return `発信者が話す前に、今すぐ日本語で「${firstMessage}」と一字一句そのまま発話してください。その後は話すのを止め、発信者の返答を聞いてください。ただし発信者が先に話し始めている場合は挨拶を重ねず、遮らずに聞いてください。`;
+        };
+
         const buildLiveInstructions = () => {
             const firstMessage = session.handoffFallback
                 ? 'では、先ほどの内容について、まだ伺えていない情報を一つずつ確認させてください。'
@@ -1975,6 +1997,7 @@ fastify.register(async (fastify) => {
             }
 
             // Rejected noise must not resolve a stalled tool exchange.
+            settleLiveOpening();
             disarmToolWatchdog();
             appendTurn(session, 'user', gateResult.normalized);
             if (SHOULD_LOG_TRANSCRIPTS && gateResult.normalized) {
@@ -2069,7 +2092,12 @@ fastify.register(async (fastify) => {
             // Live has no response.done; send the end-call mark after the last
             // assistant turn so trailing audio flushes before Twilio echoes it.
             if (session.callEnd?.requested && !session.callEnd?.completed) {
-                setTimeout(() => sendEndCallMark(`live_agent_turn_${reason}`), Number(LIVE_END_MARK_DELAY_MS));
+                const agentSocket = openAiWs;
+                setTimeout(() => {
+                    if (providerMode === 'live' && openAiWs === agentSocket) {
+                        sendEndCallMark(`live_agent_turn_${reason}`);
+                    }
+                }, Number(LIVE_END_MARK_DELAY_MS));
             }
         };
 
@@ -2081,13 +2109,15 @@ fastify.register(async (fastify) => {
             }, Number(LIVE_AGENT_TURN_GAP_MS));
         };
 
-        const handleLiveStartFailure = (reason) => {
+        const handleLiveStartFailure = (reason, { silentOpening = false } = {}) => {
             // Provider (re)start is only allowed while the call is still
             // starting or active — never after handoff, caller disconnect,
             // or normal close. This is the lifecycle guard the audit requires.
             if (
                 providerMode !== 'live'
-                || liveState.started
+                || (liveState.started && !(silentOpening && liveState.openingPending))
+                || (silentOpening && !liveState.openingPending)
+                || session.handoff?.starting
                 || callLifecycle.phase === 'handoff'
                 || callLifecycle.phase === 'closing'
                 || callLifecycle.phase === 'closed'
@@ -2101,9 +2131,15 @@ fastify.register(async (fastify) => {
                 result: 'failure',
                 metadata: { reason }
             });
-            console.error(`GPT-Live session failed to start (${reason}); falling back to Realtime`);
+            console.error(`GPT-Live startup failed (${reason})`);
+            settleLiveOpening();
+            clearLiveStartTimer();
 
             if (LIVE_FALLBACK_TO_REALTIME !== 'true') {
+                if (silentOpening) {
+                    failActiveProvider(reason);
+                    return;
+                }
                 if (connection.readyState === WebSocket.OPEN) {
                     connection.close(1011, 'live_start_failed');
                 }
@@ -2114,6 +2150,18 @@ fastify.register(async (fastify) => {
                 clearTimeout(liveState.startTimer);
                 liveState.startTimer = null;
             }
+            // Late Live transcript gaps belong to the abandoned provider. In
+            // particular, an unvoiced terminal phrase must not end Realtime.
+            if (liveState.userFragTimer) clearTimeout(liveState.userFragTimer);
+            if (liveState.agentFragTimer) clearTimeout(liveState.agentFragTimer);
+            liveState.userFragTimer = null;
+            liveState.agentFragTimer = null;
+            liveState.userFrag = '';
+            liveState.agentFrag = '';
+            liveState.outputAudioActive = false;
+            revokeCallEnd('live_start_fallback');
+            clearProviderErrorDeadline();
+            disarmToolWatchdog();
             providerMode = 'realtime';
             try {
                 if (openAiWs?.readyState === WebSocket.OPEN) openAiWs?.close(1000, 'live_fallback');
@@ -2125,6 +2173,7 @@ fastify.register(async (fastify) => {
         };
 
         const attachLiveSocket = (socket) => {
+            let openingInstructions = '';
             // The start deadline covers the WebSocket handshake too — a hung
             // TCP/TLS negotiation must not leave the caller in silence.
             if (liveState.startTimer) clearTimeout(liveState.startTimer);
@@ -2137,6 +2186,7 @@ fastify.register(async (fastify) => {
                 if (socket !== openAiWs) return;
                 console.log(`Connected to the GPT-Live API (${LIVE_MODEL})`);
 
+                openingInstructions = buildLiveOpeningInstructions();
                 const liveTools = [
                     VALIDATE_CALLBACK_PHONE_TOOL,
                     BUSINESS_HOURS_TOOL,
@@ -2151,6 +2201,7 @@ fastify.register(async (fastify) => {
                     audioFormatType: LIVE_AUDIO_FORMAT,
                     audioRate: Number(LIVE_AUDIO_RATE),
                     instructions: buildLiveInstructions(),
+                    openingInstructions,
                     delegationResponses: {
                         model: LIVE_BACKEND_MODEL,
                         instructions: buildLiveBackendInstructions(),
@@ -2172,6 +2223,9 @@ fastify.register(async (fastify) => {
 
                     switch (classified.kind) {
                         case 'started':
+                            // A repeated ack neither repeats the greeting nor extends its deadline.
+                            if (liveState.everStarted || !['starting', 'active'].includes(callLifecycle.phase)
+                                || session.handoff?.starting) break;
                             liveState.started = true;
                             liveState.everStarted = true;
                             if (liveState.startTimer) {
@@ -2189,6 +2243,16 @@ fastify.register(async (fastify) => {
                                     passthrough: liveState.codec.passthrough
                                 }
                             });
+                            // Reuse the startup deadline until actual voice or accepted caller
+                            // speech. Session/append acknowledgments are not audible progress.
+                            liveState.openingPending = true;
+                            liveState.startTimer = setTimeout(() => {
+                                liveState.startTimer = null;
+                                handleLiveStartFailure('initial_audio_timeout', { silentOpening: true });
+                            }, Number(LIVE_START_TIMEOUT_MS));
+                            socket.send(JSON.stringify(liveCommentaryAppend(
+                                openingInstructions, `greeting_${sessionId}`
+                            )));
                             flushPendingInboundAudio();
                             break;
 
@@ -2200,6 +2264,7 @@ fastify.register(async (fastify) => {
                             // single filler burst does not satisfy the
                             // pending tool continuation.
                             if (!isSilentAudioDelta(classified.delta)) {
+                                settleLiveOpening();
                                 clearProviderErrorDeadline();
                                 noteToolAudibleProgress('audio', 1);
                                 liveState.outputAudioActive = true;
@@ -2213,6 +2278,12 @@ fastify.register(async (fastify) => {
 
                         case 'input_transcript_delta':
                             liveState.userFrag += classified.delta || '';
+                            // Do not wait for the transcript gap while the caller is still
+                            // speaking across the opening deadline. Apply the same input gate.
+                            if (liveState.openingPending
+                                && evaluateRealtimeInputTranscript(liveState.userFrag, REALTIME_INPUT_GATE_CONFIG).accepted) {
+                                settleLiveOpening();
+                            }
                             scheduleLiveUserTurnFinalize();
                             // Barge-in: the caller is saying something while
                             // audio is still streaming; drop stale buffered
@@ -2298,6 +2369,7 @@ fastify.register(async (fastify) => {
                                 void (async () => {
                                     const doneEvent = toRealtimeDoneEvent(completed.calls, completed.status);
                                     const knowledgeHandled = await handleKnowledgeToolCalls(doneEvent);
+                                    if (socket !== openAiWs) return;
                                     const flowHandled = handleToolCalls(doneEvent);
                                     if (knowledgeHandled && !flowHandled) {
                                         sendRealtimeResponseCreate('knowledge_tool_output');
@@ -2308,6 +2380,7 @@ fastify.register(async (fastify) => {
                         }
 
                         case 'closed':
+                            settleLiveOpening();
                             disarmToolWatchdog();
                             auditLog('live.session.closed', {
                                 actor: 'openai',
@@ -2347,6 +2420,7 @@ fastify.register(async (fastify) => {
 
             socket.on('close', (code) => {
                 if (socket === openAiWs) {
+                    settleLiveOpening();
                     const wasStarted = liveState.everStarted;
                     liveState.started = false;
                     session.openAiCloseCode = code;
@@ -2556,6 +2630,7 @@ fastify.register(async (fastify) => {
                         // tool output lands before the shared response.create.
                         void (async () => {
                             const knowledgeHandled = await handleKnowledgeToolCalls(response);
+                            if (socket !== openAiWs) return;
                             if (handleToolCalls(response)) {
                                 return;
                             }
@@ -2821,7 +2896,8 @@ fastify.register(async (fastify) => {
             if (callEndMarkTimeout) clearTimeout(callEndMarkTimeout);
             if (liveState.userFragTimer) clearTimeout(liveState.userFragTimer);
             if (liveState.agentFragTimer) clearTimeout(liveState.agentFragTimer);
-            if (liveState.startTimer) clearTimeout(liveState.startTimer);
+            settleLiveOpening();
+            clearLiveStartTimer();
             clearProviderErrorDeadline();
 
             // Flush in-flight transcript fragments as provisional turns so a

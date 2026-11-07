@@ -5,6 +5,7 @@
 | 再現条件 | 修正後の扱い |
 |---|---|
 | Realtimeの途中切断・HTTP 429接続拒否 | 発信者の接続を終端し、provider異常を失敗として記録する |
+| Live開始成功後も初回音声が無音 | 既存`LIVE_START_TIMEOUT_MS`で初回可聴応答を待ち、無音なら既存Realtime fallbackを1回だけ行う。fallback無効時は失敗として終端する |
 | Liveが`session.closed`を通知し、WebSocketを閉じない | 発信者を無音のまま残さず終端する |
 | `server_error`後に音声が止まる | `LIVE_TOOL_WATCHDOG_MS`の期限まで復旧を待ち、無音が続けば終端する |
 | tool応答待ち中に`Hi.`などの拒否対象が転記される | 入力ゲートで受理されるまではwatchdogを解除しない |
@@ -32,3 +33,16 @@
 AI fallbackの検査は、新しいprovider接続と所有権の維持を対象とする。既存の管理記録はterminal transportStateをconnectedへ戻さないため、複数Media Stream legをまたぐ状態モデルはこの変更に含めない。
 
 一次資料: [Twilio Media Streams](https://www.twilio.com/docs/voice/media-streams)、[OpenAI Realtime server events](https://developers.openai.com/api/reference/resources/realtime/server-events)。
+
+
+## Liveの初回挨拶
+
+[OpenAIの開始手順](https://developers.openai.com/api/docs/guides/live-conversations#greet-before-the-caller-speaks)に従い、同じ日本語の挨拶指示を`session.start.session.input`のdeveloper messageと、初回`session.started`直後の`session.commentary.append`へ1回ずつ渡す。連続入力音声はそのまま送り、重複`session.started`で挨拶や期限を追加しない。ACKや文字転記だけでは発声したと判定しない。
+
+既存の開始タイマーを、接続開始から`session.started`までと、その後の初回可聴音声までの2段階で使う（各`LIVE_START_TIMEOUT_MS`、既定8秒）。非無音audio、入力ゲートを通る先行発話、転送開始、stop/closeで初回待機を解除する。発話中の転記も同じ入力ゲートで判定するため、発話の切れ目が期限後になっても名乗り直さない。無音audio・拒否noise・文字のみの出力では解除しない。
+
+初回無音のfallbackは`openingPending`かつ通話開始/継続中に限定する。`LIVE_FALLBACK_TO_REALTIME=true`なら既存のRealtime初回挨拶経路へ切り替え、旧Live socketの遅延closeは新providerへ影響させない。切替時に旧Liveの未確定転記とタイマー、server_error期限を破棄する。確定済みでも音声のない終話要求は取り消し、予約済みの再生完了markも旧providerに限定して新providerを終了させない。非同期ナレッジ検索は開始時のsocket所有権を保持し、切替後の結果・後続tool処理・response.createを破棄する。falseなら`initial_audio_timeout`をprovider失敗として記録する。通常の会話やtool待機を初回挨拶としてやり直すことはない。
+
+2026-11-07の独立実API spike（各1回、Direct Live、純無音入力、PSTNではない）では、従来手順は30.018秒で出力278frame・非無音0sample・転記なしだった。公式手順では2.093秒で最初の可聴音声、4.594秒までに非無音13,598sampleと「お電話ありがとうございます。コー株式会社」の転記を観測した。これは実電話の聴感・正確な挨拶全文の保証ではない。
+
+`node --test test/transport-chaos.test.js test/live-session.test.js`で、開始payload、挨拶の一度限り送信、ACK/無音/重複startでも延長されない期限、fallback一度限り、正常audio、先行発話と長い発話、拒否noise、stop/close、fallback無効時の失敗終端を検査する。
