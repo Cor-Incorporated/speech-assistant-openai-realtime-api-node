@@ -171,9 +171,13 @@ test.describe('admin v2 console', () => {
         await page.getByLabel('未受諾のみ').uncheck();
         await expect(page.getByText('E2E重大案件')).toBeVisible();
 
-        // Record a notification — state becomes notified, still NOT acknowledged
-        await page.getByRole('button', { name: '通知を記録' }).click();
-        await expect(page.getByText('通知を記録しました（受諾ではありません）')).toBeVisible();
+        // Local email delivery is disabled: a failed send must not become
+        // notification evidence or prevent a genuine human acknowledgement.
+        await page.getByRole('button', { name: '通知を送信' }).click();
+        await expect(page.getByRole('alert')).toBeVisible();
+        const beforeAck = (await created.json()).escalation;
+        const failed = await api(request, 'GET', `/api/admin/v2/escalations/${beforeAck.caseId}`);
+        expect((await failed.json()).escalation.notifiedAt).toBeNull();
 
         // Human acknowledge — bound to the e2e subject
         await page.getByRole('button', { name: /受諾する（ACK）/ }).click();
@@ -184,5 +188,84 @@ test.describe('admin v2 console', () => {
         const esc = list.items.find((e: { summary: string }) => e.summary === 'E2E重大案件');
         expect(esc.state).toBe('acknowledged');
         expect(esc.acknowledgedBy).toBe('e2e@cor.example');
+    });
+
+    test('calls: create and correct entirely through the UI, then read back persisted values', async ({ page, request }) => {
+        const title = `UI受付-${Date.now()}`;
+        await page.goto('/app/#v2-calls');
+        await page.getByRole('button', { name: '受付を手動登録', exact: true }).click();
+        await page.getByLabel('要約（必須）', { exact: true }).fill(title);
+        await page.getByLabel('発信者名', { exact: true }).fill('合成テスト顧客');
+        await page.getByLabel('担当者', { exact: true }).fill('担当A');
+        const created = page.waitForResponse((response) => response.request().method() === 'POST' && response.url().endsWith('/api/admin/v2/calls'));
+        await page.getByRole('button', { name: '受付を登録', exact: true }).click();
+        const response = await created;
+        expect(response.status()).toBe(201);
+        const { call } = await response.json();
+        await page.getByLabel('発信者名', { exact: true }).fill('確認済みの合成顧客');
+        await page.getByLabel('担当者', { exact: true }).fill('担当B');
+        await page.getByRole('combobox', { name: '折返し状況', exact: true }).selectOption('pending');
+        await page.getByLabel('変更理由（必須）', { exact: true }).fill('氏名と担当を確認');
+        await page.getByRole('button', { name: '保存', exact: true }).click();
+        await expect(page.getByText('保存しました', { exact: true })).toBeVisible();
+        await expect(page.getByText(/合成テスト顧客.*→.*確認済みの合成顧客/)).toBeVisible();
+        const detail = await (await api(request, 'GET', `/api/admin/v2/calls/${call.callId}`)).json();
+        expect(detail.call.effective.callerName).toBe('確認済みの合成顧客');
+        expect(detail.call.ops.assignee).toBe('担当B');
+        expect(detail.call.ops.callbackStatus).toBe('pending');
+        expect(detail.corrections.some((correction: { createdBy: string }) => correction.createdBy === 'e2e@cor.example')).toBeTruthy();
+        await page.reload();
+        await page.getByRole('button', { name: new RegExp(title) }).click();
+        await expect(page.getByLabel('担当者', { exact: true })).toHaveValue('担当B');
+        await page.screenshot({ path: 'test-results/admin-call-workflow-desktop.png', fullPage: true });
+        await page.setViewportSize({ width: 390, height: 844 });
+        await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+        await page.screenshot({ path: 'test-results/admin-call-workflow-mobile.png', fullPage: true });
+    });
+
+    test('calls: changing selection during a delayed read cannot write the previous call into the next', async ({ page, request }) => {
+        const create = async (summary: string) => (await (await api(request, 'POST', '/api/admin/v2/calls', { summary }, { 'idempotency-key': summary })).json()).call;
+        const a = await create(`race-A-${Date.now()}`);
+        const b = await create(`race-B-${Date.now()}`);
+        await page.goto('/app/#v2-calls');
+        await page.getByRole('button', { name: new RegExp(a.effective.summary) }).click();
+        await page.getByLabel('メモ', { exact: true }).fill('Aのみに属するメモ');
+        await page.getByLabel('変更理由（必須）', { exact: true }).fill('Aの編集');
+        let release!: () => void;
+        let seen!: () => void;
+        const gate = new Promise<void>((resolve) => { release = resolve; });
+        const intercepted = new Promise<void>((resolve) => { seen = resolve; });
+        await page.route(`**/api/admin/v2/calls/${b.callId}?includeDeleted=true`, async (route) => { seen(); await gate; await route.continue(); });
+        await page.getByRole('button', { name: new RegExp(b.effective.summary) }).click();
+        await intercepted;
+        try {
+            await expect(page.getByRole('heading', { name: `通話 ${a.callId}`, exact: true })).toHaveCount(0);
+            await expect(page.getByRole('button', { name: '保存', exact: true })).toHaveCount(0);
+        } finally { release(); }
+        await expect(page.getByRole('heading', { name: `通話 ${b.callId}`, exact: true })).toBeVisible();
+        await expect(page.getByLabel('メモ', { exact: true })).toHaveValue('');
+        const readback = await (await api(request, 'GET', `/api/admin/v2/calls/${b.callId}`)).json();
+        expect(readback.call.effective.memo).toBeNull();
+        expect(readback.call.ops.status).toBe('new');
+    });
+
+    test('escalations: assign a deadline and find the overdue case without faking notification', async ({ page, request }) => {
+        const summary = `期限テスト-${Date.now()}`;
+        const created = await api(request, 'POST', '/api/admin/v2/escalations', { importance: 'high', summary });
+        const { escalation } = await created.json();
+        await page.goto('/app/#v2-escalations');
+        const item = page.getByRole('listitem').filter({ hasText: summary });
+        await item.getByLabel('担当者ID', { exact: true }).fill('operator@cor.example');
+        await item.getByRole('combobox', { name: '担当ロール', exact: true }).selectOption('operator');
+        await item.getByLabel('受諾期限', { exact: true }).fill('2026-01-01T09:00');
+        await item.getByRole('button', { name: '担当・期限を保存' }).click();
+        await expect(item.getByText('受諾期限超過', { exact: true })).toBeVisible();
+        await page.getByLabel('受諾期限超過のみ').check();
+        await expect(item).toBeVisible();
+        const readback = await (await api(request, 'GET', `/api/admin/v2/escalations/${escalation.caseId}`)).json();
+        expect(readback.escalation.ownerSubject).toBe('operator@cor.example');
+        expect(readback.escalation.ackOverdue).toBe(true);
+        expect(readback.escalation.notifiedAt).toBeNull();
+        await page.screenshot({ path: 'test-results/admin-escalation-workflow.png', fullPage: true });
     });
 });

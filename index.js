@@ -88,6 +88,7 @@ import { createAdminPermissionGuard } from './lib/admin-access.js';
 import { createActionGateRuntime } from './lib/action-gate-runtime.js';
 import { initAdminV2Services } from './lib/admin-v2-runtime.js';
 import { BUSINESS_HOURS_TOOL, executeBusinessHoursCall, findBusinessHoursToolCalls } from './lib/business-hours-tool.js';
+import { registerAdminVoiceRoutes } from './lib/admin-voice-routes.js';
 import { initCallProjection, projectProviderCall } from './lib/call-projection-runtime.js';
 import {
     initKnowledgeTool,
@@ -402,6 +403,12 @@ if (adminV2.loaded) {
         knowledgeReader: adminV2.knowledgeReader,
         callService: adminV2.callService,
         escalationService: adminV2.escalationService
+    });
+    fastify.register(registerAdminVoiceRoutes, {
+        callService: adminV2.callService,
+        contextStore: handoffContextStore,
+        preHandler: createAdminPermissionGuard({ auth: adminAuth, permission: 'calls.read_pii', auditLog }),
+        auditLog
     });
 } else {
     console.warn('admin v2 routes disabled: backend services failed to initialize');
