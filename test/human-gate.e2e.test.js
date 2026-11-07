@@ -158,6 +158,7 @@ it('contains a rejected summary operation so the caller can still be redirected'
 describe('human gate end to end (real index.js, stubbed Twilio/OpenAI/Resend)', () => {
     let server;
     let serverPort;
+    let serverEnv;
     let publicBase;
     let serverLog = '';
     let stub;
@@ -173,7 +174,7 @@ describe('human gate end to end (real index.js, stubbed Twilio/OpenAI/Resend)', 
         serverPort = 19900 + Math.floor(Math.random() * 90);
         publicBase = `http://127.0.0.1:${serverPort}`;
         server = spawn(process.execPath, ['--import', PRELOAD_PATH, INDEX_PATH], {
-            env: {
+            env: serverEnv = {
                 PATH: process.env.PATH,
                 FETCH_STUB_URL: `http://127.0.0.1:${stub.port}`,
                 PORT: String(serverPort),
@@ -202,6 +203,7 @@ describe('human gate end to end (real index.js, stubbed Twilio/OpenAI/Resend)', 
                 NOTIFY_EMAIL_TO: 'ops@example.test',
                 NOTIFY_EMAIL_CC: 'k.isayama@cor-jp.com,team@example.test',
                 NOTIFY_EMAIL_FROM: 'noreply@example.test',
+                ADMIN_V2_SUBJECT_MAP: JSON.stringify({ admin: { subject: 'test-operator', roles: ['operator'], sharedAccount: false } }),
                 ADMIN_BASIC_USER: 'admin',
                 ADMIN_BASIC_PASSWORD: 'e2e-admin-password'
             },
@@ -450,6 +452,36 @@ describe('human gate end to end (real index.js, stubbed Twilio/OpenAI/Resend)', 
         });
         assert.equal(authenticated.status, 200);
         assert.equal(await authenticated.text(), 'e2e-mp3');
+    });
+
+    it('authenticated viewer cannot download voicemail through the legacy playback route', async () => {
+        const viewerPort = serverPort + 100;
+        let viewerLog = '';
+        const viewerServer = spawn(process.execPath, ['--import', PRELOAD_PATH, INDEX_PATH], {
+            env: {
+                ...serverEnv,
+                PORT: String(viewerPort),
+                ADMIN_V2_SUBJECT_MAP: JSON.stringify({ admin: { subject: 'test-viewer', roles: ['viewer'], sharedAccount: false } })
+            },
+            stdio: ['ignore', 'pipe', 'pipe']
+        });
+        viewerServer.stdout.on('data', data => { viewerLog += data.toString(); });
+        viewerServer.stderr.on('data', data => { viewerLog += data.toString(); });
+        try {
+            assert.ok(await waitFor(() => viewerLog.includes('listening'), 15000), `viewer server failed to start: ${viewerLog}`);
+            const beforeDownloads = stub.recordingDownloads.length;
+            const response = await fetch(`http://127.0.0.1:${viewerPort}/api/admin/voicemails/${RECORDING_SID}?call_sid=CA${'1'.repeat(32)}`, {
+                headers: { authorization: `Basic ${Buffer.from('admin:e2e-admin-password').toString('base64')}` }
+            });
+            assert.equal(response.status, 403);
+            assert.equal(stub.recordingDownloads.length, beforeDownloads, 'denied viewer must never fetch provider audio');
+        } finally {
+            if (viewerServer.exitCode === null && viewerServer.signalCode === null) {
+                const exited = once(viewerServer, 'exit');
+                viewerServer.kill('SIGKILL');
+                await exited;
+            }
+        }
     });
 
     it('recipient never answers (no-answer) -> voicemail instead of looping back to the AI', async () => {

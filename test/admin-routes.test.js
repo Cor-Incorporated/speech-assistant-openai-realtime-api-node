@@ -180,6 +180,7 @@ const buildApp = async (options = {}) => {
     }));
     await app.register(registerAdminRoutes, {
         auth: createAdminBasicAuth({ user: 'admin', password: 'secret' }),
+        subjectMap: { admin: { subject: 'test-admin', roles: ['supervisor'], sharedAccount: false } },
         store: new FakeStore([sampleRecord]),
         settingsStore,
         config,

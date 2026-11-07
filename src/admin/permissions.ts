@@ -12,6 +12,8 @@ export const PERMISSIONS = [
     'calls.restore',
     'calls.export',
     'calls.purge',
+    'runtime.edit',        // provider/model runtime settings
+    'notifications.retry', // retry an existing notification outbox item
     'calls.severity.raise',
     'calls.severity.lower',
     'knowledge.read',
@@ -50,6 +52,7 @@ export type Role = (typeof ROLES)[number];
 const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     viewer: ['calls.read', 'knowledge.read', 'escalations.read'],
     operator: [
+        'notifications.retry',
         'calls.read',
         'calls.read_pii',
         'calls.create_manual',
@@ -76,6 +79,8 @@ const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
         'imports.dry_run'
     ],
     supervisor: [
+        'runtime.edit',
+        'notifications.retry',
         'calls.read',
         'calls.read_pii',
         'calls.create_manual',
