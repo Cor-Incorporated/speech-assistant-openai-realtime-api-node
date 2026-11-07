@@ -87,6 +87,7 @@ import { createStreamToken, verifyMediaStreamRequest, verifyStreamToken } from '
 import { createAdminPermissionGuard } from './lib/admin-access.js';
 import { createActionGateRuntime } from './lib/action-gate-runtime.js';
 import { initAdminV2Services } from './lib/admin-v2-runtime.js';
+import { BUSINESS_HOURS_TOOL, executeBusinessHoursCall, findBusinessHoursToolCalls } from './lib/business-hours-tool.js';
 import { initCallProjection, projectProviderCall } from './lib/call-projection-runtime.js';
 import {
     initKnowledgeTool,
@@ -572,6 +573,7 @@ const buildRealtimeSessionConfig = ({
     };
     session.tools = [
         VALIDATE_CALLBACK_PHONE_TOOL,
+        BUSINESS_HOURS_TOOL,
         ...(KNOWLEDGE_TOOL_DEF ? [KNOWLEDGE_TOOL_DEF] : []),
         ...(TRANSFER_TO_HUMAN_TOOL && !handoffFallback ? [TRANSFER_TO_HUMAN_TOOL] : []),
         ...(FINISH_RECEPTION_TOOL ? [FINISH_RECEPTION_TOOL] : [])
@@ -1318,22 +1320,30 @@ fastify.register(async (fastify) => {
         // the provider before the shared response.create. The result also
         // records which release answered the call for later audit.
         const handleKnowledgeToolCalls = async (event) => {
-            if (!KNOWLEDGE_TOOL_DEF) return false;
-            const calls = findKnowledgeToolCalls(event);
+            const calls = [
+                ...(KNOWLEDGE_TOOL_DEF ? findKnowledgeToolCalls(event) : []),
+                ...findBusinessHoursToolCalls(event).map((call) => ({ ...call, businessHours: true }))
+            ];
             if (calls.length === 0) return false;
             for (const toolCall of calls) {
                 try {
-                    const output = await executeKnowledgeCall(toolCall);
+                    const output = toolCall.businessHours
+                        ? executeBusinessHoursCall(toolCall)
+                        : await executeKnowledgeCall(toolCall);
                     const meta = output._meta;
                     delete output._meta;
-                    auditLog('knowledge.lookup', {
+                    auditLog(toolCall.businessHours ? 'business_hours.lookup' : 'knowledge.lookup', {
                         actor: 'voice_tool',
                         target: session.callSid || sessionId,
                         result: meta.status,
-                        metadata: { releaseId: meta.releaseId, stale: meta.stale }
+                        metadata: toolCall.businessHours
+                            ? { reason: meta.reason }
+                            : { releaseId: meta.releaseId, stale: meta.stale }
                     });
-                    session.knowledgeLookups = session.knowledgeLookups || [];
-                    session.knowledgeLookups.push({ releaseId: meta.releaseId, status: meta.status });
+                    if (!toolCall.businessHours) {
+                        session.knowledgeLookups = session.knowledgeLookups || [];
+                        session.knowledgeLookups.push({ releaseId: meta.releaseId, status: meta.status });
+                    }
                     if (providerMode === 'live') {
                         const item = toLiveToolResultItem(output);
                         if (item) {
@@ -2054,6 +2064,7 @@ fastify.register(async (fastify) => {
 
                 const liveTools = [
                     VALIDATE_CALLBACK_PHONE_TOOL,
+                    BUSINESS_HOURS_TOOL,
                     ...(KNOWLEDGE_TOOL_DEF ? [KNOWLEDGE_TOOL_DEF] : []),
                     ...(session.handoffFallback ? [] : [TRANSFER_TO_HUMAN_TOOL].filter(Boolean)),
                     ...(FINISH_RECEPTION_TOOL ? [FINISH_RECEPTION_TOOL] : [])

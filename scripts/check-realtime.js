@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 import WebSocket from 'ws';
+import { BUSINESS_HOURS_TOOL } from '../lib/business-hours-tool.js';
 import { buildRealtimeInputGateConfig } from '../lib/realtime-input-gate.js';
 import {
     appendCallbackPhoneValidationInstructions,
@@ -110,6 +111,7 @@ const buildSessionUpdate = () => {
 
     session.tools = [
         validateCallbackPhoneTool,
+        BUSINESS_HOURS_TOOL,
         ...(finishReceptionTool ? [finishReceptionTool] : [])
     ];
     if (session.tools.length > 0) {
