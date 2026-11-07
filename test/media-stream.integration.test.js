@@ -180,6 +180,7 @@ describe('media-stream integration (real handler, mocked provider)', () => {
                 CALL_LOG_FIRESTORE_ENABLED: 'false',
                 NOTIFY_EMAIL_ENABLED: 'false',
                 EXTRACTION_ENABLED: 'false',
+                BUSINESS_HOURS_JSON: '',
                 CALL_END_HANGUP_ENABLED: 'false'
             },
             stdio: ['ignore', 'pipe', 'pipe']
@@ -346,6 +347,16 @@ describe('media-stream integration (real handler, mocked provider)', () => {
             !liveConn.messages.some((m) => m.type === 'error'),
             'provider rejected a premature response.create'
         );
+        const hoursId = provider.injectDelegation(liveConn, 'check_business_hours', '{"at":null}').callId;
+        const hoursResult = await waitFor(() => liveConn.messages.find(
+            (message) => message.type === 'response.item.create' && message.item?.call_id === hoursId
+        ), 5000);
+        assert.ok(hoursResult, 'business hours result never reached the real Live adapter');
+        const hours = JSON.parse(hoursResult.item.output);
+        assert.equal(hours.state, 'unknown');
+        assert.equal(hours.reason, 'not_configured');
+        assert.equal(hours.emergency_transfer_allowed, true);
+        assert.match(hours.instruction, /推測/);
         socket.close();
     });
 
