@@ -401,7 +401,20 @@ if (adminV2.loaded) {
         knowledgeRepository: adminV2.knowledgeRepo,
         knowledgeReader: adminV2.knowledgeReader,
         callService: adminV2.callService,
-        escalationService: adminV2.escalationService
+        escalationService: adminV2.escalationService,
+        notifyEscalation: (record) => notificationOutbox.enqueue({
+            kind: `escalation-request:${record.caseId}`,
+            callId: record.callId || record.caseId,
+            subject: `【電話受付】担当者の受諾待ち ${record.caseId}`,
+            text: [
+                'この通知は受諾ではありません。管理画面で内容を確認し、受諾または対応結果を記録してください。',
+                `案件ID: ${record.caseId}`,
+                `通話ID: ${record.callId || '未設定'}`,
+                `要約: ${record.summary || '未確認'}`,
+                `担当: ${record.ownerSubject || record.ownerRole || '未割当'}`,
+                `受諾期限: ${record.ackDeadlineAt || '未設定'}`
+            ].join('\n')
+        })
     });
 } else {
     console.warn('admin v2 routes disabled: backend services failed to initialize');

@@ -23,18 +23,46 @@ export const ESCALATION_STATES = [
 ] as const;
 export type EscalationState = (typeof ESCALATION_STATES)[number];
 
+const ACCEPTED_STATES = new Set<EscalationState>(['acknowledged', 'connecting', 'connected', 'resolved']);
+export const isAckOverdue = (record: EscalationCase, now: string): boolean =>
+    !record.acknowledgedAt && !ACCEPTED_STATES.has(record.state) &&
+    !!record.ackDeadlineAt && Date.parse(record.ackDeadlineAt) < Date.parse(now);
+
 export interface EscalationListFilter {
     state?: EscalationState;
     unacknowledgedOnly?: boolean;
+    overdueAt?: string;
     limit?: number;
     cursor?: string;
 }
 
 export const escalationMatchesFilter = (record: EscalationCase, filter: EscalationListFilter): boolean =>
     (!filter.state || record.state === filter.state) &&
-    (!filter.unacknowledgedOnly || !['acknowledged', 'resolved', 'connected'].includes(record.state));
+    (!filter.unacknowledgedOnly || (!record.acknowledgedAt && !ACCEPTED_STATES.has(record.state))) &&
+    (!filter.overdueAt || isAckOverdue(record, filter.overdueAt));
 export const escalationPageScope = (filter: EscalationListFilter): string =>
-    JSON.stringify(['escalations', filter.state ?? null, !!filter.unacknowledgedOnly]);
+    JSON.stringify(['escalations', filter.state ?? null, !!filter.unacknowledgedOnly, !!filter.overdueAt]);
+
+export interface NotificationResult {
+    ok: boolean;
+    status?: string;
+    id?: string;
+    reason?: string;
+    skipped?: boolean;
+}
+
+type Assignment = { ownerRole?: string | null; ownerSubject?: string | null; ackDeadlineAt?: string | null };
+const validateAssignment = (input: Assignment) => {
+    const errors: Record<string, string> = {};
+    if (input.ownerRole != null && !['operator', 'supervisor'].includes(input.ownerRole)) errors.ownerRole = 'operator or supervisor required';
+    if (input.ownerSubject != null && (typeof input.ownerSubject !== 'string' || !input.ownerSubject.trim() || input.ownerSubject.length > 200)) errors.ownerSubject = 'nonempty subject up to 200 characters required';
+    if (input.ackDeadlineAt != null && (typeof input.ackDeadlineAt !== 'string' ||
+        !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(input.ackDeadlineAt) ||
+        !Number.isFinite(Date.parse(input.ackDeadlineAt)) || new Date(input.ackDeadlineAt).toISOString().replace('.000Z', 'Z') !== input.ackDeadlineAt.replace('.000Z', 'Z'))) {
+        errors.ackDeadlineAt = 'valid UTC ISO timestamp required';
+    }
+    if (Object.keys(errors).length) throw new ServiceError(422, 'VALIDATION', 'invalid escalation assignment', errors);
+};
 
 export interface EscalationCase {
     schemaVersion: number;
@@ -163,10 +191,16 @@ export class EscalationService {
         urgency?: 'low' | 'normal' | 'high' | 'critical' | 'unknown';
         summary?: string | null;
         ownerRole?: string | null;
+        ownerSubject?: string | null;
         ackDeadlineAt?: string | null;
         caseId?: string;
     }): Promise<EscalationCase> {
         requirePermission(actor, 'escalations.assign', 'escalations.create');
+        validateAssignment(input);
+        if (!['normal', 'high', 'critical'].includes(input.importance) ||
+            (input.urgency !== undefined && !['low', 'normal', 'high', 'critical', 'unknown'].includes(input.urgency))) {
+            throw new ServiceError(422, 'VALIDATION', 'invalid escalation severity');
+        }
         const now = this.clock.now();
         const record: EscalationCase = {
             schemaVersion: 1,
@@ -175,9 +209,9 @@ export class EscalationService {
             importance: input.importance,
             urgency: input.urgency ?? 'unknown',
             summary: input.summary ?? null,
-            state: input.ownerRole || input.ackDeadlineAt ? 'assigned' : 'required',
+            state: input.ownerRole || input.ownerSubject ? 'assigned' : 'required',
             ownerRole: input.ownerRole ?? null,
-            ownerSubject: null,
+            ownerSubject: input.ownerSubject ?? null,
             ackDeadlineAt: input.ackDeadlineAt ?? null,
             notifiedAt: null,
             acknowledgedBy: null,
@@ -195,8 +229,9 @@ export class EscalationService {
         return stored;
     }
 
-    async assign(actor: Actor, caseId: string, args: { ownerRole?: string; ownerSubject?: string; ackDeadlineAt?: string; expectedVersion?: number }): Promise<EscalationCase> {
+    async assign(actor: Actor, caseId: string, args: Assignment & { expectedVersion?: number }): Promise<EscalationCase> {
         requirePermission(actor, 'escalations.assign', 'escalations.assign');
+        validateAssignment(args);
         const record = await this.mustGet(caseId);
         const now = this.clock.now();
         const updated: EscalationCase = {
@@ -204,10 +239,11 @@ export class EscalationService {
             ownerRole: args.ownerRole !== undefined ? args.ownerRole : record.ownerRole,
             ownerSubject: args.ownerSubject !== undefined ? args.ownerSubject : record.ownerSubject,
             ackDeadlineAt: args.ackDeadlineAt !== undefined ? args.ackDeadlineAt : record.ackDeadlineAt,
-            state: record.state === 'required' ? 'assigned' : record.state,
+            state: record.state,
             recordVersion: record.recordVersion + 1,
             updatedAt: now
         };
+        if (record.state === 'required' || record.state === 'assigned') updated.state = updated.ownerRole || updated.ownerSubject ? 'assigned' : 'required';
         await this.repo.put(updated, args.expectedVersion ?? record.recordVersion);
         await this.audit(actor, caseId, 'escalation.assign', 'success', {});
         return updated;
@@ -218,10 +254,11 @@ export class EscalationService {
     async markNotified(actor: Actor, caseId: string, expectedVersion?: number): Promise<EscalationCase> {
         requirePermission(actor, 'escalations.assign', 'escalations.notify');
         const record = await this.mustGet(caseId);
+        if (record.notifiedAt) return record;
         const now = this.clock.now();
         const updated: EscalationCase = {
             ...record,
-            state: record.state === 'acknowledged' || record.state === 'resolved' ? record.state : 'notified',
+            state: record.state === 'required' || record.state === 'assigned' ? 'notified' : record.state,
             notifiedAt: now,
             recordVersion: record.recordVersion + 1,
             updatedAt: now
@@ -229,6 +266,30 @@ export class EscalationService {
         await this.repo.put(updated, expectedVersion ?? record.recordVersion);
         await this.audit(actor, caseId, 'escalation.notify', 'success', {});
         return updated;
+    }
+
+    async requestNotification(actor: Actor, caseId: string, deliver: ((record: EscalationCase, actor: Actor) => Promise<NotificationResult>) | null) {
+        requirePermission(actor, 'escalations.assign', 'escalations.notify');
+        const record = await this.mustGet(caseId);
+        if (ACCEPTED_STATES.has(record.state)) return { escalation: record, notification: { ok: true, status: 'not_required' } };
+        if (!deliver) return { escalation: record, notification: { ok: false, status: 'disabled', reason: 'disabled' } };
+        let notification: NotificationResult;
+        try {
+            notification = await deliver(record, actor);
+        } catch {
+            return { escalation: record, notification: { ok: false, status: 'failed', reason: 'outbox_unavailable' } };
+        }
+        if (!notification.ok || notification.status !== 'accepted') return { escalation: record, notification };
+        // A provider acceptance can race with ACK/assignment on another instance.
+        // Re-read through CAS; a retry uses the same outbox key and never resends.
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+            try {
+                return { escalation: await this.markNotified(actor, caseId), notification };
+            } catch (error) {
+                if (!(error instanceof VersionConflictError) || attempt === 2) throw error;
+            }
+        }
+        throw new Error('unreachable notification retry');
     }
 
     /** ACK is bound to the authenticated subject performing the action —
@@ -240,7 +301,7 @@ export class EscalationService {
             throw new ServiceError(403, 'SHARED_ACCOUNT', 'acknowledgement requires an individually attributable subject');
         }
         const record = await this.mustGet(caseId);
-        if (record.state === 'acknowledged' || record.state === 'resolved') {
+        if (ACCEPTED_STATES.has(record.state)) {
             return record; // idempotent — already accepted
         }
         const now = this.clock.now();
@@ -259,6 +320,7 @@ export class EscalationService {
 
     async resolve(actor: Actor, caseId: string, args: { note: string; expectedVersion?: number }): Promise<EscalationCase> {
         requirePermission(actor, 'escalations.resolve', 'escalations.resolve');
+        if (typeof args.note !== 'string' || !args.note.trim()) throw new ServiceError(422, 'VALIDATION', 'resolution note is required', { note: 'required' });
         const record = await this.mustGet(caseId);
         const now = this.clock.now();
         const updated: EscalationCase = {
@@ -275,14 +337,19 @@ export class EscalationService {
         return updated;
     }
 
-    async get(actor: Actor, caseId: string): Promise<EscalationCase | null> {
+    async get(actor: Actor, caseId: string): Promise<(EscalationCase & { ackOverdue: boolean }) | null> {
         requirePermission(actor, 'escalations.read', 'escalations.read');
-        return this.repo.get(caseId);
+        const record = await this.repo.get(caseId);
+        return record ? { ...record, ackOverdue: isAckOverdue(record, this.clock.now()) } : null;
     }
 
-    async list(actor: Actor, filter: { state?: EscalationState; unacknowledgedOnly?: boolean; limit?: number; cursor?: string } = {}) {
+    async list(actor: Actor, filter: Omit<EscalationListFilter, 'overdueAt'> & { overdueOnly?: boolean } = {}) {
         requirePermission(actor, 'escalations.read', 'escalations.list');
-        return this.repo.list(filter);
+        const now = this.clock.now();
+        if (filter.state && !ESCALATION_STATES.includes(filter.state)) throw new ServiceError(422, 'VALIDATION', 'invalid escalation state');
+        if (filter.limit !== undefined && (!Number.isInteger(filter.limit) || filter.limit < 1 || filter.limit > 200)) throw new ServiceError(422, 'VALIDATION', 'limit must be an integer from 1 to 200');
+        const result = await this.repo.list({ ...filter, ...(filter.overdueOnly ? { overdueAt: now } : {}) });
+        return { ...result, items: result.items.map((record) => ({ ...record, ackOverdue: isAckOverdue(record, now) })) };
     }
 
     private async mustGet(caseId: string): Promise<EscalationCase> {
