@@ -351,7 +351,8 @@ describe('media-stream integration (real handler, mocked provider)', () => {
 
     it('rejects a start frame whose callSid does not match the token', async () => {
         const otherCallSid = 'CA' + 'f'.repeat(32);
-        const token = createStreamToken({ callSid: CALL_SID, secret: AUTH_TOKEN });
+        // Keep this identity separate from the preceding stream's close.
+        const token = createStreamToken({ callSid: 'CA' + 'b'.repeat(32), secret: AUTH_TOKEN });
         const socket = await connectClient(`?token=${encodeURIComponent(token)}`);
         socket.send(JSON.stringify({
             event: 'start',

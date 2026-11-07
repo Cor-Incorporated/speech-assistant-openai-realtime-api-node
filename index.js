@@ -243,7 +243,7 @@ if (!OPENAI_API_KEY) {
 // connects into a 404 — seen in production on 2026-09-19.
 const fastify = Fastify({ maxParamLength: 512 });
 fastify.register(fastifyFormBody);
-fastify.register(fastifyWs);
+fastify.register(fastifyWs, { options: { maxPayload: 64 * 1024 } });
 
 // 定数の設定
 const PORT_NUMBER = Number(PORT);
@@ -814,8 +814,8 @@ fastify.register(async (fastify) => {
             realtimeSettings = await getEffectiveRealtimeSettings({});
         }
 
-        const sessionId = boundCallSid || req.headers['x-twilio-call-sid'] || `session_${Date.now()}`;
-        let session = sessions.get(sessionId) || {
+        const sessionId = boundCallSid || req.id;
+        const session = {
             id: sessionId,
             callSid: sessionId,
             transcript: '',
@@ -824,7 +824,29 @@ fastify.register(async (fastify) => {
             startedAt: new Date(),
             status: 'in_progress'
         };
-        sessions.set(sessionId, session);
+        let claimedCallSid = '';
+        const claimSessionCall = (callSid) => {
+            const owner = sessions.get(callSid);
+            if (owner && owner !== session) {
+                auditLog('twilio.media_stream.rejected', {
+                    actor: 'twilio', target: callSid, result: 'failure',
+                    metadata: { reason: 'call_stream_already_active' }
+                });
+                connection.close(4409, 'call_stream_already_active');
+                return false;
+            }
+            claimedCallSid = callSid;
+            sessions.set(callSid, session);
+            return true;
+        };
+        const releaseSessionCall = () => {
+            if (claimedCallSid && sessions.get(claimedCallSid) === session) {
+                sessions.delete(claimedCallSid);
+            }
+        };
+        // This is a process-local ownership check, not a distributed lease.
+        // Claim before connecting a provider; never share a mutable session.
+        if (boundCallSid && !claimSessionCall(boundCallSid)) return;
 
         // Common call lifecycle. Provider (re)starts, delayed tool work and
         // timers must all check this — nothing may start a provider after
@@ -912,9 +934,37 @@ fastify.register(async (fastify) => {
         let pendingResponseAfterCurrent = false;
         let callEndTimer = null;
         let callEndMarkTimeout = null;
+        let providerErrorTimer = null;
         const pendingInboundAudio = [];
         const pendingOutboundAudio = [];
         const maxPendingAudioMessages = 300;
+
+        const clearProviderErrorDeadline = () => {
+            if (providerErrorTimer) clearTimeout(providerErrorTimer);
+            providerErrorTimer = null;
+        };
+        const failActiveProvider = (reason) => {
+            if (!['starting', 'active'].includes(callLifecycle.phase)
+                || session.handoff?.started || session.callEnd?.completed) return;
+            clearProviderErrorDeadline();
+            session.openAiError = session.openAiError || reason;
+            auditLog('voice.provider.failed', {
+                actor: 'openai', target: session.callSid || sessionId, result: 'failure',
+                metadata: { provider: providerMode, reason }
+            });
+            if (connection.readyState === WebSocket.OPEN) connection.close(1011, 'provider_failed');
+        };
+        const watchProviderServerError = (error) => {
+            // Request errors can be recoverable. Give a server error the
+            // existing silence window to resume audible output before ending.
+            if (error?.type !== 'server_error' || providerErrorTimer
+                || !['starting', 'active'].includes(callLifecycle.phase)) return;
+            const timeoutMs = Math.min(Math.max(Number(LIVE_TOOL_WATCHDOG_MS) || 10000, 2000), 60000);
+            providerErrorTimer = setTimeout(() => {
+                providerErrorTimer = null;
+                failActiveProvider('server_error_without_audio');
+            }, timeoutMs);
+        };
 
         const sendAudioToOpenAi = (payload) => {
             if (openAiWs?.readyState !== WebSocket.OPEN || !payload) return false;
@@ -1890,6 +1940,8 @@ fastify.register(async (fastify) => {
                 return;
             }
 
+            // Rejected noise must not resolve a stalled tool exchange.
+            disarmToolWatchdog();
             appendTurn(session, 'user', gateResult.normalized);
             if (SHOULD_LOG_TRANSCRIPTS && gateResult.normalized) {
                 console.log(`User (${sessionId}): ${gateResult.normalized}`);
@@ -2113,6 +2165,7 @@ fastify.register(async (fastify) => {
                             // single filler burst does not satisfy the
                             // pending tool continuation.
                             if (!isSilentAudioDelta(classified.delta)) {
+                                clearProviderErrorDeadline();
                                 noteToolAudibleProgress('audio', 1);
                                 liveState.outputAudioActive = true;
                                 liveState.lastAudioDeltaAt = Date.now();
@@ -2124,9 +2177,6 @@ fastify.register(async (fastify) => {
                         }
 
                         case 'input_transcript_delta':
-                            // Caller speech resolves the pending tool
-                            // exchange — the conversation moved on.
-                            if (classified.delta) disarmToolWatchdog();
                             liveState.userFrag += classified.delta || '';
                             scheduleLiveUserTurnFinalize();
                             // Barge-in: the caller is saying something while
@@ -2240,12 +2290,15 @@ fastify.register(async (fastify) => {
                                 liveState.closedResolver = null;
                                 resolve('closed');
                             }
+                            if (!liveState.closeSent) failActiveProvider('live_session_closed');
                             break;
 
                         case 'error':
                             console.error(`GPT-Live error: ${classified.error?.message || 'unknown'}`);
                             if (!liveState.started) {
                                 handleLiveStartFailure(classified.error?.message || 'live_error');
+                            } else {
+                                watchProviderServerError(classified.error);
                             }
                             break;
 
@@ -2285,9 +2338,7 @@ fastify.register(async (fastify) => {
                                 result: 'failure',
                                 metadata: { code }
                             });
-                            if (connection.readyState === WebSocket.OPEN) {
-                                connection.close(1011, 'provider_dropped');
-                            }
+                            failActiveProvider(`live_socket_closed_${code}`);
                         }
                     }
                 }
@@ -2491,10 +2542,13 @@ fastify.register(async (fastify) => {
                         console.error('Realtime API error:', response.error?.message || 'Unknown realtime error');
                         if (!initial && session.modelEscalation?.status === 'starting') {
                             failRealtimeEscalation(response.error?.message || 'realtime_error');
+                        } else {
+                            watchProviderServerError(response.error);
                         }
                     }
 
                     if ((response.type === 'response.output_audio.delta' || response.type === 'response.audio.delta') && response.delta) {
+                        if (!isSilentAudioDelta(response.delta)) clearProviderErrorDeadline();
                         sendAudioToTwilio(response.delta);
                     }
                 } catch (error) {
@@ -2509,6 +2563,8 @@ fastify.register(async (fastify) => {
                     if (session.modelEscalation?.status === 'starting') {
                         failRealtimeEscalation(`socket_closed_${code}`);
                     }
+                    // A failed replacement may restore the previous socket.
+                    if (socket === openAiWs) failActiveProvider(`realtime_socket_closed_${code}`);
                 }
                 console.log(`Disconnected from the OpenAI Realtime API (${activeRealtimeModel})`);
             });
@@ -2524,6 +2580,7 @@ fastify.register(async (fastify) => {
         // (handoff/close raced ahead) can never spawn a provider session.
         const connectProvider = () => {
             if (openAiWs) return;
+            if (pendingTwilioClose || connection.readyState !== WebSocket.OPEN) return;
             if (callLifecycle.phase === 'handoff'
                 || callLifecycle.phase === 'closing'
                 || callLifecycle.phase === 'closed'
@@ -2546,6 +2603,8 @@ fastify.register(async (fastify) => {
 
         // Twilioからのメッセージを処理
         const handleTwilioMessage = (message) => {
+            if (connection.readyState !== WebSocket.OPEN
+                || callLifecycle.phase === 'closing' || callLifecycle.phase === 'closed') return;
             try {
                 const data = JSON.parse(message.toString());
 
@@ -2561,6 +2620,16 @@ fastify.register(async (fastify) => {
                 }
 
                 switch (data.event) {
+                    case 'stop':
+                        // stop is itself terminal; Twilio need not close its
+                        // socket before provider drain and persistence begin.
+                        if (twilioCloseHandler) {
+                            void twilioCloseHandler(1000, 'twilio_stop');
+                        } else {
+                            pendingTwilioClose = { code: 1000, reason: 'twilio_stop' };
+                        }
+                        connection.close(1000, 'twilio_stop');
+                        break;
                     case 'media':
                         if (data.media?.payload) {
                             if (!sendAudioToOpenAi(data.media.payload)
@@ -2570,6 +2639,15 @@ fastify.register(async (fastify) => {
                         }
                         break;
                     case 'start':
+                        if (session.streamSid) {
+                            // An identical replay is harmless; a second stream
+                            // identity cannot replace this connection's owner.
+                            if (data.start?.streamSid !== session.streamSid
+                                || (data.start?.callSid && data.start.callSid !== session.callSid)) {
+                                connection.close(4409, 'stream_identity_changed');
+                            }
+                            break;
+                        }
                         if (streamAuthDeferred) {
                             const paramToken = data.start?.customParameters?.stream_token || '';
                             const verified = verifyStreamToken(paramToken, TWILIO_AUTH_TOKEN);
@@ -2584,15 +2662,6 @@ fastify.register(async (fastify) => {
                                 break;
                             }
                             boundCallSid = verified.callSid;
-                            streamAuthDeferred = false;
-                            if (authDeadline) {
-                                clearTimeout(authDeadline);
-                                authDeadline = null;
-                            }
-                            // Authentication completed via the deferred
-                            // <Parameter> channel — the paid provider
-                            // session may now be created.
-                            connectProvider();
                         }
                         if (!data.start?.streamSid) {
                             console.warn('Twilio stream start message did not include streamSid');
@@ -2610,9 +2679,16 @@ fastify.register(async (fastify) => {
                             connection.close(4403, 'call_sid_mismatch');
                             break;
                         }
+                        const acceptedCallSid = boundCallSid || data.start.callSid || sessionId;
+                        if (!claimSessionCall(acceptedCallSid)) break;
+                        streamAuthDeferred = false;
+                        if (authDeadline) {
+                            clearTimeout(authDeadline);
+                            authDeadline = null;
+                        }
                         const customParameters = data.start.customParameters || {};
                         session.streamSid = data.start.streamSid;
-                        session.callSid = data.start.callSid || session.callSid;
+                        session.callSid = acceptedCallSid;
                         session.accountSid = data.start.accountSid || '';
                         callLifecycle.phase = 'active';
                         session.lifecycle = callLifecycle.phase;
@@ -2649,6 +2725,7 @@ fastify.register(async (fastify) => {
                             }
                         });
                         callLogSinks.recordStarted(session);
+                        connectProvider();
                         // v2 projection at call start — correlation ids land
                         // even if the call later drops without extraction.
                         void projectProviderCall({
@@ -2699,12 +2776,18 @@ fastify.register(async (fastify) => {
             if (callLifecycle.phase === 'closing' || callLifecycle.phase === 'closed') return;
             callLifecycle.phase = 'closing';
             session.lifecycle = callLifecycle.phase;
+            // The media leg is over. Do not block an AI-fallback stream on
+            // extraction/notification persistence, and never delete its claim
+            // when this older connection finishes its asynchronous cleanup.
+            releaseSessionCall();
+            if (authDeadline) clearTimeout(authDeadline);
 
             if (callEndTimer) clearTimeout(callEndTimer);
             if (callEndMarkTimeout) clearTimeout(callEndMarkTimeout);
             if (liveState.userFragTimer) clearTimeout(liveState.userFragTimer);
             if (liveState.agentFragTimer) clearTimeout(liveState.agentFragTimer);
             if (liveState.startTimer) clearTimeout(liveState.startTimer);
+            clearProviderErrorDeadline();
 
             // Flush in-flight transcript fragments as provisional turns so a
             // mid-utterance disconnect does not silently lose caller speech.
@@ -2775,7 +2858,7 @@ fastify.register(async (fastify) => {
                 });
                 callLifecycle.phase = 'closed';
                 session.lifecycle = callLifecycle.phase;
-                sessions.delete(sessionId);
+                releaseSessionCall();
                 return;
             }
 
@@ -2867,7 +2950,7 @@ fastify.register(async (fastify) => {
             // セッションのクリーンアップ
             callLifecycle.phase = 'closed';
             session.lifecycle = callLifecycle.phase;
-            sessions.delete(sessionId);
+            releaseSessionCall();
         };
 
         twilioCloseHandler = handleTwilioClose;

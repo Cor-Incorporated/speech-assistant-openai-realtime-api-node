@@ -1,0 +1,289 @@
+// Exercise the actual Media Streams route; all provider traffic stays on localhost.
+import assert from 'node:assert/strict';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { createServer } from 'node:net';
+import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { after, before, describe, it } from 'node:test';
+import WebSocket, { WebSocketServer } from 'ws';
+import { createStreamToken } from '../lib/stream-auth.js';
+
+const INDEX_PATH = fileURLToPath(new URL('../index.js', import.meta.url));
+const AUTH_TOKEN = 'transport-chaos-synthetic-secret';
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const waitFor = async (predicate, timeoutMs = 3000) => {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+        const result = await predicate();
+        if (result) return result;
+        await sleep(20);
+    }
+    return null;
+};
+let callCounter = 0;
+
+async function createHarness(mode) {
+    const connections = [];
+    const clients = [];
+    let rejectNext = false;
+    let log = '';
+    const provider = new WebSocketServer({
+        port: 0,
+        host: '127.0.0.1',
+        verifyClient: (_info, done) => {
+            const reject = rejectNext;
+            rejectNext = false;
+            done(!reject, 429, 'synthetic rate limit');
+        }
+    });
+    await once(provider, 'listening');
+    provider.on('connection', (socket) => {
+        const connection = { socket, messages: [] };
+        connections.push(connection);
+        socket.on('message', (raw) => {
+            const event = JSON.parse(raw.toString());
+            connection.messages.push(event);
+            if (event.type === 'session.start') {
+                socket.send(JSON.stringify({ type: 'session.started', session: { id: 'synthetic' } }));
+            } else if (event.type === 'session.update') {
+                socket.send(JSON.stringify({ type: 'session.updated', session: event.session }));
+            } else if (event.type === 'session.close' && !connection.holdClose) {
+                socket.send(JSON.stringify({ type: 'session.closed', usage: { total_tokens: 0 } }));
+            }
+        });
+    });
+    const probe = createServer();
+    await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve));
+    const port = probe.address().port;
+    await new Promise((resolve) => probe.close(resolve));
+    const server = spawn(process.execPath, [INDEX_PATH], {
+        // A separate cwd prevents dotenv from reading real credentials.
+        cwd: tmpdir(),
+        env: {
+            PATH: process.env.PATH,
+            NODE_ENV: 'test',
+            PORT: String(port),
+            OPENAI_API_KEY: 'synthetic-key',
+            TWILIO_AUTH_TOKEN: AUTH_TOKEN,
+            TWILIO_STREAM_AUTH_ENABLED: 'true',
+            VOICE_PROVIDER: mode,
+            OPENAI_LIVE_WS_URL: `ws://127.0.0.1:${provider.address().port}`,
+            OPENAI_REALTIME_WS_URL: `ws://127.0.0.1:${provider.address().port}`,
+            LIVE_FALLBACK_TO_REALTIME: 'false',
+            LIVE_START_TIMEOUT_MS: '1000',
+            LIVE_TOOL_WATCHDOG_MS: '2000',
+            LIVE_CLOSE_DRAIN_MS: '150',
+            LIVE_USER_TURN_GAP_MS: '100',
+            CALL_GATE_REQUIRED: 'false',
+            LOG_REALTIME_EVENTS: 'true',
+            CALL_LOG_FIRESTORE_ENABLED: 'false',
+            CALL_LOG_SHEETS_ENABLED: 'false',
+            NOTIFY_EMAIL_ENABLED: 'false',
+            EXTRACTION_ENABLED: 'false',
+            CALL_END_HANGUP_ENABLED: 'false',
+            HANDOFF_ENABLED: 'false',
+            ADMIN_BASIC_USER: 'chaos',
+            ADMIN_BASIC_PASSWORD: 'synthetic-only'
+        },
+        stdio: ['ignore', 'pipe', 'pipe']
+    });
+    server.stdout.on('data', (data) => { log += data; });
+    server.stderr.on('data', (data) => { log += data; });
+    assert.ok(await waitFor(() => log.includes('Server is listening'), 15000), log);
+
+    return {
+        get log() { return log; },
+        get providerConnectionCount() { return connections.length; },
+        rejectNextConnection() { rejectNext = true; },
+        async connectUnauthenticated() {
+            const socket = new WebSocket(`ws://127.0.0.1:${port}/media-stream`);
+            clients.push(socket);
+            await once(socket, 'open');
+            return socket;
+        },
+        async connect({ rejected = false, deferred = false, callSid = `CA${String(++callCounter).padStart(32, '0')}`, customParameters = {} } = {}) {
+            const token = createStreamToken({ callSid, secret: AUTH_TOKEN });
+            const count = connections.length;
+            const socket = new WebSocket(`ws://127.0.0.1:${port}/media-stream${deferred ? '' : `/${encodeURIComponent(token)}`}`);
+            clients.push(socket);
+            const call = { socket, callSid, provider: null, close: null };
+            socket.on('close', (code, reason) => { call.close = { code, reason: reason.toString() }; });
+            await once(socket, 'open');
+            socket.send(JSON.stringify({
+                event: 'start',
+                start: {
+                    callSid, streamSid: 'MZ' + '1'.repeat(32),
+                    customParameters: { ...customParameters, ...(deferred ? { stream_token: token } : {}) }
+                }
+            }));
+            if (!rejected) {
+                call.provider = await waitFor(() => {
+                    const conn = connections[count];
+                    return conn?.messages.some((event) => event.type === (mode === 'live' ? 'session.start' : 'session.update')) && conn;
+                });
+                assert.ok(call.provider, 'local provider never received session initialization');
+            }
+            return call;
+        },
+        async readCall(callSid) {
+            const response = await fetch(`http://127.0.0.1:${port}/api/admin/v2/calls/${callSid}`, {
+                headers: { authorization: `Basic ${Buffer.from('chaos:synthetic-only').toString('base64')}` }
+            });
+            return response.ok ? (await response.json()).call : null;
+        },
+        async stop() {
+            for (const client of clients) client.terminate();
+            server.kill('SIGKILL');
+            await once(server, 'exit');
+            for (const conn of connections) conn.socket.terminate();
+            await new Promise((resolve) => provider.close(resolve));
+        }
+    };
+}
+
+function injectDelegation(connection, suffix) {
+    const delegationId = `delegation_${suffix}`;
+    for (const event of [
+        { type: 'session.delegation.created', delegation: { id: delegationId, target: 'responses' } },
+        {
+            type: 'response.event', delegation_id: delegationId,
+            event: {
+                type: 'response.output_item.done',
+                item: { type: 'function_call', call_id: `tool_${suffix}`, name: 'lookup_company_knowledge', arguments: '{"query":"営業時間"}' }
+            }
+        },
+        {
+            type: 'response.event', delegation_id: delegationId,
+            event: { type: 'response.completed', response: { id: `response_${suffix}`, status: 'completed' } }
+        }
+    ]) connection.socket.send(JSON.stringify(event));
+}
+
+for (const mode of ['realtime', 'live']) describe(`${mode} transport chaos`, () => {
+    let harness;
+    before(async () => { harness = await createHarness(mode); });
+    after(async () => { await harness?.stop(); });
+
+    it('ends and records a failed call after the provider disconnects', async () => {
+        const call = await harness.connect();
+        call.provider.socket.terminate();
+        assert.ok(await waitFor(() => call.close), 'caller remains connected to a dead provider');
+        const record = await waitFor(async () => {
+            const value = await harness.readCall(call.callSid);
+            return value?.transportState === 'failed' && value;
+        });
+        assert.ok(record, 'provider failure must not be projected as a normal ended call');
+    });
+
+    it('rejects duplicate call ownership before provider work and permits an AI fallback after close', async () => {
+        const first = await harness.connect();
+        const before = harness.providerConnectionCount;
+        for (const deferred of [false, true]) {
+            const duplicate = await harness.connect({ callSid: first.callSid, deferred, rejected: true });
+            assert.ok(await waitFor(() => duplicate.close));
+            assert.equal(duplicate.close.code, 4409);
+            assert.equal(harness.providerConnectionCount, before);
+            assert.equal(first.socket.readyState, WebSocket.OPEN);
+            assert.equal((await harness.readCall(first.callSid)).transportState, 'connected');
+        }
+        // Hold Live drain open until its deadline so the old cleanup finishes
+        // after the fallback has already claimed the same call.
+        if (mode === 'live') first.provider.holdClose = true;
+        first.socket.close();
+        assert.ok(await waitFor(() => first.close));
+        const fallback = await harness.connect({ callSid: first.callSid, customParameters: { handoff_fallback: 'true' } });
+        assert.ok(fallback.provider);
+        // The old connection's delayed cleanup must not release the new claim.
+        await sleep(250);
+        const duplicate = await harness.connect({ callSid: first.callSid, rejected: true });
+        assert.ok(await waitFor(() => duplicate.close));
+        assert.equal(duplicate.close.code, 4409);
+        assert.equal(fallback.socket.readyState, WebSocket.OPEN);
+        fallback.socket.close();
+    });
+
+    it('ends after an HTTP 429 provider handshake rejection', async () => {
+        harness.rejectNextConnection();
+        const call = await harness.connect({ rejected: true });
+        assert.ok(await waitFor(() => call.close), 'provider rejection leaves caller in indefinite silence');
+    });
+
+    it('bounds server-error silence while preserving request errors and audible recovery', async () => {
+        const call = await harness.connect();
+        const recovered = await harness.connect();
+        call.provider.socket.send(JSON.stringify({
+            type: 'error', error: { type: 'invalid_request_error', code: 'response_cancel_not_active', message: 'no active response' }
+        }));
+        await sleep(100);
+        assert.equal(call.socket.readyState, WebSocket.OPEN);
+        recovered.provider.socket.send(JSON.stringify({
+            type: 'error', error: { type: 'server_error', message: 'temporary failure' }
+        }));
+        recovered.provider.socket.send(JSON.stringify({
+            type: mode === 'live' ? 'session.output_audio.delta' : 'response.output_audio.delta',
+            delta: Buffer.alloc(160, 0x55).toString('base64')
+        }));
+        call.provider.socket.send(JSON.stringify({
+            type: 'error', error: { type: 'server_error', code: 'server_error', message: 'synthetic fatal failure' }
+        }));
+        call.provider.socket.send(JSON.stringify({
+            type: mode === 'live' ? 'session.output_audio.delta' : 'response.output_audio.delta',
+            delta: Buffer.alloc(160, 0xff).toString('base64')
+        }));
+        assert.ok(await waitFor(() => call.close), 'fatal provider error leaves caller in indefinite silence');
+        assert.equal(recovered.socket.readyState, WebSocket.OPEN, 'audible provider recovery must preserve the call');
+        recovered.socket.close();
+    });
+
+    it('finalizes a stop frame once and rejects late media without waiting for a socket close', async () => {
+        const call = await harness.connect();
+        const receivedBefore = call.provider.messages.length;
+        for (const event of [
+            { event: 'stop', stop: { callSid: call.callSid } },
+            { event: 'stop', stop: { callSid: call.callSid } },
+            { event: 'media', media: { payload: Buffer.alloc(160, 0xff).toString('base64') } }
+        ]) call.socket.send(JSON.stringify(event));
+        assert.ok(await waitFor(() => call.close), 'stop frame never finalized the stream');
+        assert.ok(await waitFor(async () => (await harness.readCall(call.callSid))?.transportState === 'ended'));
+        assert.equal(harness.log.split('\n').filter((line) => line.includes('"action":"call.completed"') && line.includes(call.callSid)).length, 1);
+        const afterStop = call.provider.messages.slice(receivedBefore);
+        assert.equal(afterStop.filter((event) => event.type.includes('audio') && event.type.endsWith('append')).length, 0);
+        if (mode === 'live') assert.equal(afterStop.filter((event) => event.type === 'session.close').length, 1);
+    });
+
+    if (mode === 'live') {
+        it('rejects an oversized unauthenticated frame before opening a provider session', async () => {
+            const count = harness.providerConnectionCount;
+            const socket = await harness.connectUnauthenticated();
+            const closed = once(socket, 'close');
+            socket.send(JSON.stringify({ event: 'connected', padding: 'x'.repeat(64 * 1024) }));
+            const [code] = await closed;
+            assert.equal(code, 1009);
+            assert.equal(harness.providerConnectionCount, count);
+        });
+
+        it('ends when the provider declares its session closed but leaves its socket open', async () => {
+            const call = await harness.connect();
+            call.provider.socket.send(JSON.stringify({ type: 'session.closed', usage: { total_tokens: 0 } }));
+            assert.ok(await waitFor(() => call.close), 'closed provider session strands the caller');
+        });
+
+        it('keeps the tool watchdog for rejected noise while accepted caller speech resolves it', async () => {
+            const noisy = await harness.connect();
+            const speaking = await harness.connect();
+            injectDelegation(noisy.provider, 'noisy');
+            injectDelegation(speaking.provider, 'speaking');
+            for (const call of [noisy, speaking]) {
+                assert.ok(await waitFor(() => call.provider.messages.some((event) => event.type === 'response.create')));
+            }
+            noisy.provider.socket.send(JSON.stringify({ type: 'session.input_transcript.delta', delta: 'Hi.' }));
+            speaking.provider.socket.send(JSON.stringify({ type: 'session.input_transcript.delta', delta: '確認できました。ありがとうございます。' }));
+            assert.ok(await waitFor(() => harness.log.includes('insufficient_speech_signal')));
+            assert.ok(await waitFor(() => noisy.close, 5500), 'rejected noise disabled the pending tool watchdog');
+            assert.equal(speaking.socket.readyState, WebSocket.OPEN, 'accepted caller speech should resolve the previous tool exchange');
+            assert.equal(speaking.provider.messages.filter((event) => event.type === 'session.instructions.append').length, 0);
+            speaking.socket.close();
+        });
+    }
+});
