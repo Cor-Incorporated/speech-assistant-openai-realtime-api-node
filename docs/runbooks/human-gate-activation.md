@@ -38,6 +38,8 @@ gcloud run services describe speech-assistant-realtime --project cor-jp-web --re
 ## 実機確認
 
 正式な社名表記は「Cor.株式会社」、音声での読みは「コー株式会社」とする。
+Whisper要約中の「Cor.株式会社」「Cor株式会社」「Cor．株式会社」は、生成する音声用TwiMLだけで読み替える。
+保存済み要約・管理画面の正式表記・第三者名は変更しない。
 Live・Realtimeの初期挨拶と、担当者向けWhisperの社名をそれぞれ実電話で確認する。
 文字列の回帰テスト成功だけでは発音の聴感受入としない。
 
