@@ -69,6 +69,7 @@ describe('admin v2 API', () => {
             knowledgeService,
             callService,
             escalationService,
+            notifyEscalation: async () => ({ ok: true, status: 'accepted', id: 'synthetic-notification' }),
             knowledgeReader: new KnowledgeReader(knowledgeRepo),
             knowledgeRepository: knowledgeRepo,
             subjectMap

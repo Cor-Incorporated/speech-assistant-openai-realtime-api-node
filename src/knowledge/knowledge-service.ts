@@ -433,7 +433,7 @@ export class KnowledgeService {
     // Delete / restore
     // ------------------------------------------------------------------
 
-    async softDelete(actor: Actor, knowledgeId: string, args: { reason: string }): Promise<KnowledgeRecord> {
+    async softDelete(actor: Actor, knowledgeId: string, args: { reason: string; expectedVersion?: number }): Promise<KnowledgeRecord> {
         requirePermission(actor, 'knowledge.edit', 'knowledge.delete');
         if (!args.reason?.trim()) {
             throw new ServiceError(422, 'VALIDATION', 'deletion reason is required', { reason: 'required' });
@@ -450,7 +450,7 @@ export class KnowledgeService {
             updatedAt: now,
             updatedBy: actor.subject
         };
-        await this.repo.putKnowledge(updated, record.recordVersion);
+        await this.repo.putKnowledge(updated, args.expectedVersion ?? record.recordVersion);
         await this.repo.updateRuntimeSettings((current) => ({
             ...current,
             revocationEpoch: current.revocationEpoch + 1,
