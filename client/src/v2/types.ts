@@ -50,6 +50,8 @@ export interface CallRecord {
         callerName?: string | null;
         callerNameKana?: string | null;
         callbackNumber?: string | null;
+        callbackRequestedWindow?: string | null;
+        intent?: string | null;
         memo?: string | null;
         summary?: string | null;
     };
@@ -62,11 +64,12 @@ export interface CallRecord {
 export interface CallCorrection {
     correctionId: string;
     callId: string;
-    field: string;
+    target: string;
+    targetRef: string | null;
     previousValue: unknown;
-    correctedValue: unknown;
+    newValue: unknown;
     reason: string;
-    correctedBy: string;
+    createdBy: string;
     createdAt: string;
     active: boolean;
     supersededBy: string | null;
@@ -82,6 +85,7 @@ export interface EscalationCase {
     ownerRole: string | null;
     ownerSubject: string | null;
     ackDeadlineAt: string | null;
+    ackOverdue?: boolean;
     notifiedAt: string | null;
     acknowledgedBy: string | null;
     acknowledgedAt: string | null;

@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useRef, useState } from 'react';
 import { apiGet, apiWrite, ApiError } from './api';
 import type { KnowledgeRecord, KnowledgeRevision, ListResult, Release } from './types';
 import { Button, Empty, ErrorBanner, Field, inputClass, Section, StateBadge, formatDate } from './ui';
@@ -94,7 +94,7 @@ export default function KnowledgePage() {
                 </ul>
             </Section>
             {selected ? (
-                <KnowledgeDetail knowledgeId={selected} onChanged={load} />
+                <KnowledgeDetail key={selected} knowledgeId={selected} onChanged={load} />
             ) : (
                 <Section title="詳細">
                     <Empty>左の一覧から項目を選択してください</Empty>
@@ -115,17 +115,21 @@ function KnowledgeDetail({ knowledgeId, onChanged }: { knowledgeId: string; onCh
     const [editing, setEditing] = useState(false);
     const [editAnswer, setEditAnswer] = useState('');
     const [editTitle, setEditTitle] = useState('');
+    const loadVersion = useRef(0);
 
     const load = useCallback(async () => {
+        const version = ++loadVersion.current;
         setError(null);
         setPreview(null);
         try {
             const { body, etag: tag } = await apiGet<Detail>(`/api/admin/v2/knowledge/${encodeURIComponent(knowledgeId)}`);
+            if (version !== loadVersion.current) return;
             setDetail(body);
             setEtag(tag);
             setEditTitle(body.draftRevision?.answerJa ? body.knowledge.title : body.knowledge.title);
             setEditAnswer(body.draftRevision?.answerJa ?? '');
         } catch (err) {
+            if (version !== loadVersion.current) return;
             setError(err);
             setDetail(null);
         }
@@ -133,6 +137,7 @@ function KnowledgeDetail({ knowledgeId, onChanged }: { knowledgeId: string; onCh
 
     useEffect(() => {
         void load();
+        return () => { loadVersion.current += 1; };
     }, [load]);
 
     const run = async (label: string, fn: () => Promise<unknown>, done: string, refresh = true) => {
@@ -146,8 +151,10 @@ function KnowledgeDetail({ knowledgeId, onChanged }: { knowledgeId: string; onCh
                 await load();
                 onChanged();
             }
+            return true;
         } catch (err) {
             setActionError(err);
+            return false;
         } finally {
             setBusy(null);
         }
@@ -165,7 +172,7 @@ function KnowledgeDetail({ knowledgeId, onChanged }: { knowledgeId: string; onCh
     const saveEdit = async (event: FormEvent) => {
         event.preventDefault();
         if (!draftRevision || !etag) return;
-        await run('save', async () => {
+        const saved = await run('save', async () => {
             await apiWrite('PATCH', `/api/admin/v2/knowledge/${knowledgeId}`, {
                 key: knowledge.key,
                 title: editTitle,
@@ -185,7 +192,7 @@ function KnowledgeDetail({ knowledgeId, onChanged }: { knowledgeId: string; onCh
                 operatorNote: draftRevision.operatorNote ?? null
             }, { 'if-match': etag });
         }, '保存しました（新しいdraftリビジョンを作成 — 承認は引き継がれません）');
-        setEditing(false);
+        if (saved) setEditing(false);
     };
 
     return (
@@ -227,6 +234,7 @@ function KnowledgeDetail({ knowledgeId, onChanged }: { knowledgeId: string; onCh
             )}
 
             <ErrorBanner error={actionError} />
+            {actionError instanceof ApiError && actionError.isConflict && <Button onClick={() => void load()}>最新の内容を読み込む</Button>}
             {notice && <p className="rounded border border-emerald-200 bg-emerald-50 p-2 text-sm text-emerald-800" role="status">{notice}</p>}
 
             <div className="flex flex-wrap gap-2">
