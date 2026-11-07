@@ -23,7 +23,7 @@ const waitFor = async (predicate, timeoutMs = 3000) => {
 };
 let callCounter = 0;
 
-async function createHarness(mode) {
+async function createHarness(mode, { openingAudio = true, fallback = false, startTimeoutMs = 1000, delayedKnowledge = false } = {}) {
     const connections = [];
     const clients = [];
     let rejectNext = false;
@@ -46,6 +46,9 @@ async function createHarness(mode) {
             connection.messages.push(event);
             if (event.type === 'session.start') {
                 socket.send(JSON.stringify({ type: 'session.started', session: { id: 'synthetic' } }));
+                if (openingAudio) socket.send(JSON.stringify({
+                    type: 'session.output_audio.delta', delta: Buffer.alloc(160, 0x55).toString('base64')
+                }));
             } else if (event.type === 'session.update') {
                 socket.send(JSON.stringify({ type: 'session.updated', session: event.session }));
             } else if (event.type === 'session.close' && !connection.holdClose) {
@@ -57,7 +60,10 @@ async function createHarness(mode) {
     await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve));
     const port = probe.address().port;
     await new Promise((resolve) => probe.close(resolve));
-    const server = spawn(process.execPath, [INDEX_PATH], {
+    const server = spawn(process.execPath, [
+        ...(delayedKnowledge ? ['--import', fileURLToPath(new URL('./helpers/delayed-knowledge.mjs', import.meta.url))] : []),
+        INDEX_PATH
+    ], {
         // A separate cwd prevents dotenv from reading real credentials.
         cwd: tmpdir(),
         env: {
@@ -70,8 +76,8 @@ async function createHarness(mode) {
             VOICE_PROVIDER: mode,
             OPENAI_LIVE_WS_URL: `ws://127.0.0.1:${provider.address().port}`,
             OPENAI_REALTIME_WS_URL: `ws://127.0.0.1:${provider.address().port}`,
-            LIVE_FALLBACK_TO_REALTIME: 'false',
-            LIVE_START_TIMEOUT_MS: '1000',
+            LIVE_FALLBACK_TO_REALTIME: String(fallback),
+            LIVE_START_TIMEOUT_MS: String(startTimeoutMs),
             LIVE_TOOL_WATCHDOG_MS: '2000',
             LIVE_CLOSE_DRAIN_MS: '150',
             LIVE_USER_TURN_GAP_MS: '100',
@@ -95,6 +101,7 @@ async function createHarness(mode) {
     return {
         get log() { return log; },
         get providerConnectionCount() { return connections.length; },
+        get providerConnections() { return connections; },
         rejectNextConnection() { rejectNext = true; },
         async connectUnauthenticated() {
             const socket = new WebSocket(`ws://127.0.0.1:${port}/media-stream`);
@@ -286,4 +293,171 @@ for (const mode of ['realtime', 'live']) describe(`${mode} transport chaos`, () 
             speaking.socket.close();
         });
     }
+});
+
+
+describe('Live opening audio', () => {
+    let harness;
+    before(async () => { harness = await createHarness('live', { openingAudio: false, fallback: true }); });
+    after(async () => { await harness?.stop(); });
+
+    it('seeds and requests the same greeting once, then preserves a voiced opening', async () => {
+        const call = await harness.connect();
+        const start = call.provider.messages.find((event) => event.type === 'session.start');
+        const greeting = start.session.input?.[0];
+        assert.equal(greeting?.role, 'developer');
+        assert.equal(greeting?.content?.[0]?.type, 'input_text');
+        assert.match(greeting.content[0].text, /日本語/);
+        assert.match(greeting.content[0].text, /コー株式会社/);
+        assert.ok(await waitFor(() => call.provider.messages.some((event) => event.type === 'session.commentary.append')));
+        const commentary = call.provider.messages.find((event) => event.type === 'session.commentary.append');
+        assert.equal(commentary.content, greeting.content[0].text);
+        assert.equal(commentary.delegation_id, null);
+        assert.ok(commentary.event_id);
+        call.provider.socket.send(JSON.stringify({ type: 'session.started', session: { id: 'duplicate' } }));
+        call.provider.socket.send(JSON.stringify({ type: 'session.output_audio.delta', delta: Buffer.alloc(160, 0x55).toString('base64') }));
+        const count = harness.providerConnectionCount;
+        await sleep(1250);
+        assert.equal(call.provider.messages.filter((event) => event.type === 'session.commentary.append').length, 1);
+        assert.equal(harness.providerConnectionCount, count);
+        assert.equal(call.socket.readyState, WebSocket.OPEN);
+        call.socket.close();
+    });
+
+    it('bounds silence despite ACKs, transcript-only output and duplicate starts, and falls back once', async () => {
+        const call = await harness.connect();
+        const count = harness.providerConnectionCount;
+        const timer = setInterval(() => {
+            if (call.provider.socket.readyState !== WebSocket.OPEN) return;
+            for (const event of [
+                { type: 'session.started', session: { id: 'duplicate' } },
+                { type: 'session.commentary.appended', client_event_id: 'greeting' },
+                { type: 'session.output_transcript.delta', delta: 'お電話ありがとうございます。' },
+                { type: 'session.output_audio.delta', delta: Buffer.alloc(160, 0xff).toString('base64') }
+            ]) call.provider.socket.send(JSON.stringify(event));
+        }, 100);
+        try {
+            assert.ok(await waitFor(() => harness.providerConnectionCount === count + 1, 2500), 'silent opening never left Live');
+        } finally { clearInterval(timer); }
+        const realtime = harness.providerConnections.at(-1);
+        assert.ok(await waitFor(() => realtime.messages.some((event) => event.type === 'response.create')));
+        assert.match(JSON.stringify(realtime.messages.find((event) => event.type === 'conversation.item.create')), /コー株式会社/);
+        await sleep(1250);
+        assert.equal(harness.providerConnectionCount, count + 1);
+        assert.equal(call.socket.readyState, WebSocket.OPEN, 'old Live close must not close the replacement provider');
+        call.socket.close();
+    });
+
+    it('discards an unvoiced terminal transcript before replacing Live', async () => {
+        const call = await harness.connect();
+        const messages = [];
+        call.socket.on('message', (raw) => messages.push(JSON.parse(raw.toString())));
+        const count = harness.providerConnectionCount;
+        call.provider.socket.send(JSON.stringify({
+            type: 'session.output_transcript.delta',
+            delta: 'このあとお電話をお切りいただいて大丈夫です。失礼いたします。'
+        }));
+        assert.ok(await waitFor(() => harness.providerConnectionCount === count + 1, 2500));
+        await sleep(1700);
+        assert.equal(messages.filter((event) => event.event === 'mark').length, 0, 'old terminal transcript reached the replacement');
+        assert.equal(call.socket.readyState, WebSocket.OPEN);
+        assert.equal((await harness.readCall(call.callSid)).transportState, 'connected');
+        call.socket.close();
+    });
+
+    it('revokes an unvoiced terminal turn whose playback mark was already scheduled', async () => {
+        const isolated = await createHarness('live', { openingAudio: false, fallback: true, startTimeoutMs: 1700 });
+        try {
+            const call = await isolated.connect();
+            const messages = [];
+            call.socket.on('message', (raw) => messages.push(JSON.parse(raw.toString())));
+            call.provider.socket.send(JSON.stringify({
+                type: 'session.output_transcript.delta',
+                delta: 'このあとお電話をお切りいただいて大丈夫です。失礼いたします。'
+            }));
+            assert.ok(await waitFor(() => isolated.providerConnectionCount === 2, 2500));
+            await sleep(1700);
+            assert.equal(messages.filter((event) => event.event === 'mark').length, 0, 'old scheduled mark reached the replacement');
+            assert.equal(call.socket.readyState, WebSocket.OPEN);
+        } finally { await isolated.stop(); }
+    });
+
+    it('discards the old Live server-error deadline before replacing it', async () => {
+        const call = await harness.connect();
+        const count = harness.providerConnectionCount;
+        call.provider.socket.send(JSON.stringify({ type: 'error', error: { type: 'server_error', message: 'synthetic startup error' } }));
+        assert.ok(await waitFor(() => harness.providerConnectionCount === count + 1, 2500));
+        await sleep(1250);
+        assert.equal(call.socket.readyState, WebSocket.OPEN, 'old server-error deadline ended the replacement');
+        call.socket.close();
+    });
+
+    it('discards delayed old-provider tool outputs and continuation after fallback', async () => {
+        const isolated = await createHarness('live', { openingAudio: false, fallback: true, delayedKnowledge: true });
+        try {
+            const call = await isolated.connect();
+            assert.ok(call.provider.messages[0].session.delegation.responses.tools.some((tool) => tool.name === 'lookup_company_knowledge'));
+            injectDelegation(call.provider, 'startup_stale');
+            assert.ok(await waitFor(() => isolated.providerConnectionCount === 2, 2500));
+            const realtime = isolated.providerConnections.at(-1);
+            await sleep(1000);
+            assert.equal(realtime.messages.filter((event) => event.item?.type === 'function_call_output').length, 0);
+            assert.equal(realtime.messages.filter((event) => event.type === 'response.create').length, 1);
+            assert.equal(call.socket.readyState, WebSocket.OPEN);
+        } finally { await isolated.stop(); }
+    });
+
+    it('preserves accepted caller speech before the greeting and rejects noise as progress', async () => {
+        const speaking = await harness.connect();
+        speaking.provider.socket.send(JSON.stringify({ type: 'session.input_transcript.delta', delta: '営業時間を教えてください。' }));
+        const noisy = await harness.connect();
+        noisy.provider.socket.send(JSON.stringify({ type: 'session.input_transcript.delta', delta: 'Hi.' }));
+        const count = harness.providerConnectionCount;
+        assert.ok(await waitFor(() => harness.providerConnectionCount === count + 1, 2500));
+        assert.equal(speaking.provider.socket.readyState, WebSocket.OPEN);
+        assert.equal(speaking.socket.readyState, WebSocket.OPEN);
+        assert.equal(noisy.provider.socket.readyState, WebSocket.CLOSED);
+        speaking.socket.close();
+        noisy.socket.close();
+    });
+
+    it('preserves a caller still speaking across the opening deadline', async () => {
+        const call = await harness.connect();
+        const count = harness.providerConnectionCount;
+        await sleep(650);
+        const timer = setInterval(() => {
+            call.provider.socket.send(JSON.stringify({ type: 'session.input_transcript.delta', delta: '営業時間を教えてください。' }));
+        }, 60);
+        try { await sleep(750); } finally { clearInterval(timer); }
+        assert.equal(harness.providerConnectionCount, count);
+        assert.equal(call.socket.readyState, WebSocket.OPEN);
+        call.socket.close();
+    });
+
+    it('does not start a replacement after stop or caller close', async () => {
+        const stopped = await harness.connect();
+        const disconnected = await harness.connect();
+        const count = harness.providerConnectionCount;
+        stopped.socket.send(JSON.stringify({ event: 'stop', stop: { callSid: stopped.callSid } }));
+        disconnected.socket.close();
+        assert.ok(await waitFor(() => stopped.close && disconnected.close));
+        await sleep(1250);
+        assert.equal(harness.providerConnectionCount, count);
+    });
+
+    it('records failure and ends a silent opening when fallback is disabled', async () => {
+        const isolated = await createHarness('live', { openingAudio: false });
+        try {
+            const call = await isolated.connect();
+            assert.ok(await waitFor(() => call.close, 2500), 'silent opening remains connected without fallback');
+            assert.equal(call.close.code, 1011);
+            assert.ok(await waitFor(async () => (await isolated.readCall(call.callSid))?.transportState === 'failed'));
+            assert.equal(isolated.providerConnectionCount, 1);
+            const resumed = await isolated.connect({ customParameters: { handoff_fallback: 'true' } });
+            assert.ok(await waitFor(() => resumed.close, 2500), 'handoff fallback leg remains connected in silence');
+            assert.equal(resumed.close.code, 1011);
+            assert.ok(await waitFor(async () => (await isolated.readCall(resumed.callSid))?.transportState === 'failed'));
+
+        } finally { await isolated.stop(); }
+    });
 });

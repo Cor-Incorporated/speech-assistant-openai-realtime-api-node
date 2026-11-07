@@ -73,6 +73,11 @@ class ProviderStub {
                         type: 'session.started',
                         session: { id: 'live_stub_session' }
                     }));
+                    // Tool-failure scenarios begin after an audible opening.
+                    socket.send(JSON.stringify({
+                        type: 'session.output_audio.delta',
+                        delta: Buffer.alloc(160, 0x55).toString('base64')
+                    }));
                 }
                 if (event.type === 'response.item.create' && event.item?.type === 'function_call_output') {
                     conn.toolOutputs.push(event.item.call_id);
