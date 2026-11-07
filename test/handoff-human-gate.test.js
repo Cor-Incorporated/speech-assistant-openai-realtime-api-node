@@ -127,7 +127,7 @@ describe('human gate: recipient answers the transfer', () => {
         const whisper = await post(harness.app, `/handoff/whisper?call_sid=${CALL_SID}`);
         assert.equal(whisper.statusCode, 200);
         assert.match(whisper.headers['content-type'], /text\/xml/);
-        assert.match(whisper.body, /Cor\.株式会社コールセンターからの引き継ぎ/);
+        assert.match(whisper.body, /コー株式会社コールセンターからの引き継ぎ/);
         assert.match(whisper.body, /用件は納品物が動かない/);
         assert.match(whisper.body, /今すぐ対応できる場合は1を押してください/);
         assert.match(whisper.body, /今は対応できない場合は2を押してください/);

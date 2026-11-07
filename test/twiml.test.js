@@ -133,8 +133,18 @@ test('voicemail TwiML announces recording, records with a beep and reports the f
 test('whisper identifies the company reception without exposing AI wording', () => {
     const body = buildWhisperTwiml({ summary: '資料請求', confirmUrl: 'https://voice.example/confirm' });
 
-    assert.match(body, /Cor\.株式会社コールセンターからの引き継ぎ/);
+    assert.match(body, /コー株式会社コールセンターからの引き継ぎ/);
     assert.doesNotMatch(body, /AI受付/);
+});
+
+test('whisper pronounces only the company name in audio without changing source text or third-party names', () => {
+    const summary = 'Cor.株式会社とCor株式会社、Cor．株式会社について。Coral社・コル銀行・OtherCor株式会社の資料 <確認 & 連絡>。';
+    const input = Object.freeze({ summary, confirmUrl: 'https://voice.example/confirm' });
+    const body = buildWhisperTwiml(input);
+
+    assert.ok(body.includes('コー株式会社とコー株式会社、コー株式会社について。Coral社・コル銀行・OtherCor株式会社の資料 &lt;確認 &amp; 連絡&gt;。'));
+    assert.equal(input.summary, summary, 'stored/display summary must retain its original spelling');
+    assert.doesNotMatch(body, /<確認/);
 });
 
 test('dial status TwiML distinguishes connected and fallback calls', () => {
