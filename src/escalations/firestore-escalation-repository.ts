@@ -5,8 +5,9 @@
 //   escalationCases/{caseId}/events/{eventId}
 
 import { Firestore, type CollectionReference, type DocumentData } from '@google-cloud/firestore';
-import type { EscalationCase, EscalationRepository, EscalationState } from './escalation-service.js';
+import { escalationMatchesFilter, escalationPageScope, type EscalationCase, type EscalationRepository, type EscalationListFilter } from './escalation-service.js';
 import { VersionConflictError } from '../knowledge/repository.js';
+import { firestoreRecordPage } from '../pagination/record-page.js';
 
 export interface FirestoreEscalationRepositoryOptions {
     firestore?: Firestore;
@@ -69,28 +70,13 @@ export class FirestoreEscalationRepository implements EscalationRepository {
         return record;
     }
 
-    async list(filter: { state?: EscalationState; unacknowledgedOnly?: boolean; limit?: number; cursor?: string } = {}) {
-        const limit = Math.min(Math.max(filter.limit ?? 50, 1), 200);
-        const snapshot = await this.cases().orderBy('createdAt', 'desc').limit(500).get();
-        let items = snapshot.docs.map((doc) => doc.data() as EscalationCase);
-        if (filter.state) items = items.filter((c) => c.state === filter.state);
-        if (filter.unacknowledgedOnly) {
-            items = items.filter((c) => c.state !== 'acknowledged' && c.state !== 'resolved' && c.state !== 'connected');
-        }
-        items.sort((a, b) => {
-            const aScore = (a.state === 'acknowledged' || a.state === 'resolved' ? 1 : 0);
-            const bScore = (b.state === 'acknowledged' || b.state === 'resolved' ? 1 : 0);
-            return aScore - bScore || b.createdAt.localeCompare(a.createdAt);
+    async list(filter: EscalationListFilter = {}) {
+        return firestoreRecordPage<EscalationCase>(this.cases(), {
+            ...filter,
+            scope: escalationPageScope(filter),
+            orderField: 'createdAt',
+            include: (record) => escalationMatchesFilter(record, filter)
         });
-        const startIndex = filter.cursor ? items.findIndex((c) => c.caseId === filter.cursor) + 1 : 0;
-        const start = startIndex > 0 ? startIndex : filter.cursor ? items.length : 0;
-        const page = items.slice(start, start + limit);
-        const hasMore = start + limit < items.length || snapshot.docs.length === 500;
-        return {
-            items: page,
-            nextCursor: hasMore && page.length > 0 ? page[page.length - 1]!.caseId : null,
-            hasMore
-        };
     }
 
     async appendEvent(event: {

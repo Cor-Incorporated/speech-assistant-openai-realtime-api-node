@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { hasPermission, type Actor, type Permission } from '../admin/permissions.js';
 import { ServiceError } from '../knowledge/knowledge-service.js';
 import { VersionConflictError } from '../knowledge/repository.js';
+import { memoryRecordPage } from '../pagination/record-page.js';
 
 export { ServiceError, VersionConflictError };
 
@@ -21,6 +22,19 @@ export const ESCALATION_STATES = [
     'resolved'
 ] as const;
 export type EscalationState = (typeof ESCALATION_STATES)[number];
+
+export interface EscalationListFilter {
+    state?: EscalationState;
+    unacknowledgedOnly?: boolean;
+    limit?: number;
+    cursor?: string;
+}
+
+export const escalationMatchesFilter = (record: EscalationCase, filter: EscalationListFilter): boolean =>
+    (!filter.state || record.state === filter.state) &&
+    (!filter.unacknowledgedOnly || !['acknowledged', 'resolved', 'connected'].includes(record.state));
+export const escalationPageScope = (filter: EscalationListFilter): string =>
+    JSON.stringify(['escalations', filter.state ?? null, !!filter.unacknowledgedOnly]);
 
 export interface EscalationCase {
     schemaVersion: number;
@@ -48,10 +62,11 @@ export interface EscalationRepository {
     get(caseId: string): Promise<EscalationCase | null>;
     createIfAbsent(record: EscalationCase): Promise<{ created: boolean; record: EscalationCase }>;
     put(record: EscalationCase, expectedVersion?: number): Promise<EscalationCase>;
-    list(filter?: { state?: EscalationState; unacknowledgedOnly?: boolean; limit?: number; cursor?: string }): Promise<{
+    list(filter?: EscalationListFilter): Promise<{
         items: EscalationCase[];
         nextCursor: string | null;
         hasMore: boolean;
+        partial?: boolean;
     }>;
     appendEvent(event: {
         eventId: string;
@@ -91,28 +106,14 @@ export class InMemoryEscalationRepository implements EscalationRepository {
         return clone(record);
     }
 
-    async list(filter: { state?: EscalationState; unacknowledgedOnly?: boolean; limit?: number; cursor?: string } = {}) {
-        const limit = Math.min(Math.max(filter.limit ?? 50, 1), 200);
-        let items = [...this.cases.values()];
-        if (filter.state) items = items.filter((c) => c.state === filter.state);
-        if (filter.unacknowledgedOnly) {
-            items = items.filter((c) => c.state !== 'acknowledged' && c.state !== 'resolved' && c.state !== 'connected');
-        }
-        items.sort((a, b) => {
-            // Unacknowledged critical first, then by creation.
-            const aScore = (a.state === 'acknowledged' || a.state === 'resolved' ? 1 : 0);
-            const bScore = (b.state === 'acknowledged' || b.state === 'resolved' ? 1 : 0);
-            return aScore - bScore || b.createdAt.localeCompare(a.createdAt);
+    async list(filter: EscalationListFilter = {}) {
+        const result = memoryRecordPage([...this.cases.values()], {
+            ...filter,
+            scope: escalationPageScope(filter),
+            position: (record) => ({ key: record.createdAt, id: record.caseId }),
+            include: (record) => escalationMatchesFilter(record, filter)
         });
-        const startIndex = filter.cursor ? items.findIndex((c) => c.caseId === filter.cursor) + 1 : 0;
-        const start = startIndex > 0 ? startIndex : filter.cursor ? items.length : 0;
-        const page = items.slice(start, start + limit);
-        const hasMore = start + limit < items.length;
-        return {
-            items: page.map(clone),
-            nextCursor: hasMore && page.length > 0 ? page[page.length - 1]!.caseId : null,
-            hasMore
-        };
+        return { ...result, items: result.items.map(clone) };
     }
 
     async appendEvent(event: {

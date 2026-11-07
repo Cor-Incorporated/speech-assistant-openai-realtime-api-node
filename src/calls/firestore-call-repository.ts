@@ -11,9 +11,8 @@
 import { Firestore, type CollectionReference, type DocumentData } from '@google-cloud/firestore';
 import type { CallCorrection, CallRecord } from './call-schemas.js';
 import type { CallRepository, ListCallsFilter, ListCallsResult } from './call-repository.js';
-import { CallNotFoundError, VersionConflictError } from './call-repository.js';
-
-const SEVERITY_ORDER = ['low', 'normal', 'high', 'critical'] as const;
+import { CallNotFoundError, VersionConflictError, callMatchesFilter, callPageScope } from './call-repository.js';
+import { firestoreRecordPage } from '../pagination/record-page.js';
 
 export interface FirestoreCallRepositoryOptions {
     firestore?: Firestore;
@@ -88,30 +87,12 @@ export class FirestoreCallRepository implements CallRepository {
     }
 
     async list(filter: ListCallsFilter = {}): Promise<ListCallsResult> {
-        const limit = Math.min(Math.max(filter.limit ?? 50, 1), 200);
-        const snapshot = await this.calls().orderBy('startedAt', 'desc').limit(500).get();
-        let items = snapshot.docs.map((doc) => doc.data() as CallRecord);
-        if (!filter.includeDeleted) items = items.filter((r) => !r.deletedAt);
-        if (filter.businessState) items = items.filter((r) => r.ops.status === filter.businessState);
-        if (filter.origin) items = items.filter((r) => r.origin === filter.origin);
-        if (filter.severityMin) {
-            const min = SEVERITY_ORDER.indexOf(filter.severityMin);
-            items = items.filter((r) => {
-                const idx = SEVERITY_ORDER.indexOf(r.severity.importance as typeof SEVERITY_ORDER[number]);
-                return idx >= min;
-            });
-        }
-        const startIndex = filter.cursor ? items.findIndex((r) => r.callId === filter.cursor) + 1 : 0;
-        const start = startIndex > 0 ? startIndex : filter.cursor ? items.length : 0;
-        const page = items.slice(start, start + limit);
-        const truncated = snapshot.docs.length === 500;
-        const hasMore = start + limit < items.length || truncated;
-        return {
-            items: page,
-            nextCursor: hasMore && page.length > 0 ? page[page.length - 1]!.callId : null,
-            hasMore,
-            partial: hasMore || truncated
-        };
+        return firestoreRecordPage<CallRecord>(this.calls(), {
+            ...filter,
+            scope: callPageScope(filter),
+            orderField: 'startedAt',
+            include: (record) => callMatchesFilter(record, filter)
+        });
     }
 
     async addCorrection(correction: CallCorrection): Promise<CallCorrection> {
