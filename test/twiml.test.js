@@ -133,7 +133,7 @@ test('voicemail TwiML announces recording, records with a beep and reports the f
 test('whisper identifies the company reception without exposing AI wording', () => {
     const body = buildWhisperTwiml({ summary: '資料請求', confirmUrl: 'https://voice.example/confirm' });
 
-    assert.match(body, /Cor\.株式会社コールセンターからの引き継ぎ/);
+    assert.match(body, /コー株式会社コールセンターからの引き継ぎ/);
     assert.doesNotMatch(body, /AI受付/);
 });
 

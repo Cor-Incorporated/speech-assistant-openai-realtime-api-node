@@ -104,11 +104,13 @@ const CURRENT_DIR = dirname(fileURLToPath(import.meta.url));
 const ADMIN_APP_DIST_DIR = resolve(CURRENT_DIR, 'dist/client');
 const ADMIN_APP_INDEX_PATH = join(ADMIN_APP_DIST_DIR, 'index.html');
 
+const COMPANY_PRONUNCIATION_INSTRUCTION = '正式な社名表記は「Cor.株式会社」です。音声では必ず「コー株式会社」と発音してください。';
+
 const DEFAULT_SYSTEM_MESSAGE = [
     'あなたは日本のコールセンターで電話一次受付を担当するAIオペレーターです。',
     '必ず自然で丁寧な日本語だけで応答してください。英語では応答しません。',
-    '通常は「Cor.株式会社コールセンターです」と名乗り、自分からAI・人工知能・システムとは名乗らないでください。AIかどうかを尋ねられた場合は正直に答え、希望があれば担当者へ引き継いでください。',
-    '通話開始時の挨拶は、会社名を省略・短縮・言い換えせず「お電話ありがとうございます。Cor.株式会社コールセンターです。ご用件をお聞かせください。」と一字一句そのまま発話してください。',
+    '通常は「コー株式会社コールセンターです」と名乗り、自分からAI・人工知能・システムとは名乗らないでください。AIかどうかを尋ねられた場合は正直に答え、希望があれば担当者へ引き継いでください。',
+    '通話開始時の挨拶は、会社名を省略・短縮・言い換えせず「お電話ありがとうございます。コー株式会社コールセンターです。ご用件をお聞かせください。」と一字一句そのまま発話してください。',
     '相手が話し始めたら自分の発話を止めて聞いてください。相手の発話に重ねて話さず、特に電話番号の途中で応答や質問を差し込まないでください。',
     '相手の発話が聞き取れない場合は、推測せず「恐れ入ります。もう一度お話しいただけますか」と確認してください。',
     '一度に複数の質問をせず、用件、名前、折り返し電話番号、希望日時などを一つずつ確認してください。',
@@ -207,7 +209,7 @@ const {
     RESEND_API_KEY = '',
     SYSTEM_MESSAGE = DEFAULT_SYSTEM_MESSAGE,
     SYSTEM_MESSAGE_FILE = '',
-    FIRST_MESSAGE = 'お電話ありがとうございます。Cor.株式会社コールセンターです。ご用件をお聞かせください。',
+    FIRST_MESSAGE = 'お電話ありがとうございます。コー株式会社コールセンターです。ご用件をお聞かせください。',
     CALL_END_WORKFLOW_ENABLED = 'true',
     CALL_END_HANGUP_ENABLED = 'true',
     CALL_END_FINAL_PHRASE = '',
@@ -284,7 +286,7 @@ const CALL_END_CONFIG = buildCallEndConfig({
 });
 const RESOLVED_SYSTEM_MESSAGE = appendCallEndInstructions(
     appendHandoffInstructions(
-        appendCallbackPhoneValidationInstructions(resolveSystemMessage()),
+        appendCallbackPhoneValidationInstructions(`${resolveSystemMessage()}\n${COMPANY_PRONUNCIATION_INSTRUCTION}`),
         HANDOFF_CONFIG
     ),
     CALL_END_CONFIG
@@ -1930,6 +1932,7 @@ fastify.register(async (fastify) => {
                 : FIRST_MESSAGE;
             return [
                 'あなたはCor.株式会社の電話受付を行う日本語の音声AIです。簡潔で丁寧な自然な日本語で話してください。',
+                COMPANY_PRONUNCIATION_INSTRUCTION,
                 `通話開始の最初の発話として、必ず一字一句そのまま「${firstMessage}」とだけ発話し、その後は発信者の返答を待ってください。`,
                 '業務上の判断・電話番号の検証・受付終了・担当者への転送可否は、すべてバックエンドに委譲してください。自分だけで判断せず、バックエンドの結果を自然な言葉で伝えてください。',
                 'バックエンドへの委譲中は発信者を無音で待たせないでください。「少々お待ちください」など短い相づちを先に伝え、結果が返ったら要点だけを簡潔に案内してください。',
